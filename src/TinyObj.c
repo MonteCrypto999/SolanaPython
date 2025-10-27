@@ -33,8 +33,11 @@ const NativeProperty TinyObjNativeProp = {.super = NULL,
                                           .methodGroupCount = 0};
 
 PikaObj* New_TinyObj(Args* args) {
+    (void)args;
     PikaObj* self = New_PikaObj(NULL);
+#ifndef PIKA_SOLANA_SBF
     self->constructor = New_TinyObj;
+#endif
 #if PIKA_KERNAL_DEBUG_ENABLE
     self->name = "TinyObj";
 #endif

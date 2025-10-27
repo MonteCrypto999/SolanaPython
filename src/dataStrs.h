@@ -40,7 +40,10 @@ char* strsDeleteChar(Args* buff, char* strIn, char ch);
 char* strsCut(Args* buffs, char* strIn, char startSign, char endSign);
 char* strsRemovePrefix(Args* buffs, char* inputStr, char* prefix);
 char* strsAppend(Args* buffs, char* strOrigin, char* strAppend);
+// BPF-PATCHED: Defined as macro in pika_varargs_override.h for PIKA_SOLANA_SBF
+#ifndef PIKA_SOLANA_SBF
 char* strsFormat(Args* buffs, uint16_t buffSize, const char* fmt, ...);
+#endif
 char* strsGetDirectStr(Args* buffs, char* argPath);
 Arg* arg_strAppend(Arg* arg_in, char* str_to_append);
 char* strsReplace(Args* buffs, char* orig, char* rep, char* with);

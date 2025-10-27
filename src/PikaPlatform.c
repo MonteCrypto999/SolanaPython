@@ -255,12 +255,16 @@ PIKA_WEAK int pika_platform_putchar(char ch) {
 }
 
 #ifndef pika_platform_printf
+#ifdef PIKA_SOLANA_SBF
+// BPF version of printf is handled by PikaPlatform_sbf.c and pika_sbf_config.h
+#else
 PIKA_WEAK void pika_platform_printf(char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     pika_vprintf(fmt, args);
     va_end(args);
 }
+#endif
 #endif
 
 PIKA_WEAK char* pika_platform_strdup(const char* src) {
@@ -579,7 +583,8 @@ PIKA_WEAK char** pika_platform_listdir(const char* path, int* count) {
 #elif defined(_WIN32) && !defined(CROSS_BUILD)
     struct _finddata_t fb;
     intptr_t handle = 0;
-    char dirpath[256] = {0};
+    char dirpath[256];
+    pika_platform_memset(&dirpath, 0, sizeof(dirpath));
     char* currentPath = _getcwd(dirpath, 256);
     strcat(dirpath, path);
     strcat(dirpath, "\\*");
@@ -701,7 +706,8 @@ PIKA_WEAK pika_platform_thread_t* pika_platform_thread_init(
 #elif PIKA_ZEUSOS_ENABLE
     pika_platform_thread_t* thread;
     static int thread_count = 0;
-    char task_name[ZOS_NAME_MAX + 1] = {0};
+    char task_name[ZOS_NAME_MAX + 1];
+    pika_platform_memset(&task_name, 0, sizeof(task_name));
     zos_sprintf(task_name, "%s%d", name, thread_count++);
     thread = pikaMalloc(sizeof(pika_platform_thread_t));
     if (ZOS_NULL == thread) {
@@ -851,7 +857,8 @@ PIKA_WEAK int pika_platform_thread_mutex_init(pika_platform_thread_mutex_t* m) {
     return 0;
 #elif PIKA_ZEUSOS_ENABLE
     static int mutex_count = 0;
-    char mutex_name[ZOS_NAME_MAX + 1] = {0};
+    char mutex_name[ZOS_NAME_MAX + 1];
+    pika_platform_memset(&mutex_name, 0, sizeof(mutex_name));
     zos_sprintf(mutex_name, "pika_mutex%d", mutex_count++);
     m->mutex = zos_mutex_create(mutex_name, ZOS_FALSE);
     return 0;
@@ -935,7 +942,8 @@ int pika_thread_recursive_mutex_init(pika_thread_recursive_mutex_t* m) {
     int ret = 0;
 #if PIKA_ZEUSOS_ENABLE
     static int mutex_count = 0;
-    char mutex_name[ZOS_NAME_MAX + 1] = {0};
+    char mutex_name[ZOS_NAME_MAX + 1];
+    pika_platform_memset(&mutex_name, 0, sizeof(mutex_name));
     zos_sprintf(mutex_name, "pika_rec_mutex%d", mutex_count++);
     m->mutex.mutex = zos_mutex_create(mutex_name, ZOS_TRUE);
     if (m->mutex.mutex == ZOS_NULL) {

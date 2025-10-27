@@ -75,3 +75,17 @@ tools/pikaPackageManager/main.go
 tools/pikaPackageManager/make.sh
 tools/pikaPackageManager/requestment.txt
 #</lab>
+
+# Local settings
+.claude/
+
+# Solana build artifacts
+solana/build/
+solana/node_modules/
+solana/test-ledger/
+solana/tools/pika_compile
+*-keypair.json
+*.so
+*.bc
+*.o
+*.dSYM/

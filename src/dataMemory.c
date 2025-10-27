@@ -29,9 +29,15 @@
 #include "dataMemory.h"
 #include "PikaPlatform.h"
 
+#ifndef PIKA_SOLANA_SBF
 volatile PikaMemInfo g_PikaMemInfo = {0};
+#endif
 
 void* pikaMalloc(uint32_t size) {
+#ifdef PIKA_SOLANA_SBF
+    /* SBF: Direct allocation, no global tracking */
+    return pika_platform_malloc(size);
+#else
     /* pika memory lock */
     if (0 != pika_is_locked_pikaMemory()) {
         pika_platform_wait();
@@ -57,9 +63,14 @@ void* pikaMalloc(uint32_t size) {
         }
     }
     return mem;
+#endif
 }
 
 void pikaFree(void* mem, uint32_t size) {
+#ifdef PIKA_SOLANA_SBF
+    /* SBF: Direct free */
+    pika_platform_free(mem);
+#else
     pika_assert(mem != NULL);
     if (0 != pika_is_locked_pikaMemory()) {
         pika_platform_wait();
@@ -75,19 +86,30 @@ void pikaFree(void* mem, uint32_t size) {
     pika_user_free(mem, size);
     pika_platform_enable_irq_handle();
     g_PikaMemInfo.heapUsed -= size;
+#endif
 }
 
 uint32_t pikaMemNow(void) {
+#ifdef PIKA_SOLANA_SBF
+    return 0;
+#else
     return g_PikaMemInfo.heapUsed;
+#endif
     // return 0;
 }
 
 uint32_t pikaMemMax(void) {
+#ifdef PIKA_SOLANA_SBF
+    return 0;
+#else
     return g_PikaMemInfo.heapUsedMax;
+#endif
 }
 
 void pikaMemMaxReset(void) {
+#ifndef PIKA_SOLANA_SBF
     g_PikaMemInfo.heapUsedMax = 0;
+#endif
 }
 
 #if PIKA_POOL_ENABLE

@@ -137,6 +137,9 @@ static inline Hash arg_getNameHash(Arg* self) {
 }
 
 static inline ArgType arg_getType(Arg* self) {
+    if (self == NULL) {
+        return ARG_TYPE_NONE;
+    }
     pika_assert(self != 0);
     return (ArgType)self->type;
 }

@@ -165,19 +165,46 @@ int32_t AST_deinit(AST* ast);
 char* instructUnit_fromAsmLine(Args* outBuffs, char* pikaAsm);
 ByteCodeFrame* byteCodeFrame_appendFromAsm(ByteCodeFrame* bf, char* pikaAsm);
 
-#define _Cursor_forEach(cursor)  \
-    _Cursor_beforeIter(&cursor); \
-    for (int __i = 0; __i < cursor.length; __i++)
+/* Unified pointer-based macros */
+#define _Cursor_forEach(cursor_ptr)  \
+    _Cursor_beforeIter(cursor_ptr);  \
+    for (int __i = 0; __i < cursor_ptr->length; __i++)
 
-#define Cursor_forEachExistPs(cursor, stmt) \
-    /* init parserStage */                  \
-    _Cursor_init(&cursor);                  \
-    _Cursor_parse(&cursor, stmt);           \
-    _Cursor_forEach(cursor)
+#define Cursor_forEachExistPs(cursor_ptr, stmt) \
+    _Cursor_init(cursor_ptr);                   \
+    _Cursor_parse(cursor_ptr, stmt);            \
+    _Cursor_forEach(cursor_ptr)
 
-#define Cursor_forEach(cursor, stmt) \
-    struct Cursor cursor;            \
-    Cursor_forEachExistPs(cursor, stmt)
+#ifdef PIKA_SOLANA_SBF
+/* SBF: heap-allocate Cursor to reduce stack usage */
+#define Cursor_forEach(cursor_name, stmt)                                         \
+    struct Cursor* cursor_name = (struct Cursor*)pika_platform_malloc(sizeof(struct Cursor)); \
+    if (cursor_name) { \
+        /* Initialize to avoid garbage if init fails */ \
+        pika_platform_memset(cursor_name, 0, sizeof(struct Cursor)); \
+    } \
+    Cursor_forEachExistPs(cursor_name, stmt)
+
+#define Cursor_deinit_heap(cursor_ptr) do { \
+    if (cursor_ptr) { \
+        Cursor_deinit(cursor_ptr);              \
+        pika_platform_free(cursor_ptr);         \
+    } \
+} while(0)
+
+/* Helper to free early returns */
+#define Cursor_free(cursor_ptr) pika_platform_free(cursor_ptr)
+
+#else
+/* Non-SBF: stack-allocated struct, exposed as pointer */
+#define Cursor_forEach(cursor_name, stmt) \
+    struct Cursor _##cursor_name##_stack; \
+    struct Cursor* cursor_name = &_##cursor_name##_stack; \
+    Cursor_forEachExistPs(cursor_name, stmt)
+
+#define Cursor_deinit_heap(cursor_ptr) Cursor_deinit(cursor_ptr)
+#define Cursor_free(cursor_ptr) ((void)0)
+#endif
 
 uint16_t TokenStream_getSize(char* tokenStream);
 Arg* arg_strAddIndent(Arg* aStrIn, int indent);

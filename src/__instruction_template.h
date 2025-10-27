@@ -60,7 +60,15 @@
     },
 #endif
 
+#if defined(__INS_DISPATCH)
+#define def_ins(__INS_NAME)                                                \
+    case _##PIKA_VM_INS_##__INS_NAME:                                      \
+        return_arg = VM_instruction_handler_##__INS_NAME(self, vm, data, &ret_reg); \
+        break;
+#endif
+
 #undef __INS_ENUM
 #undef __INS_TABLE
 #undef __INS_COMPARE
 #undef __INS_OPCODE
+#undef __INS_DISPATCH

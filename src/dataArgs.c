@@ -32,6 +32,8 @@
 #include "dataString.h"
 #include "dataStrs.h"
 
+/* Native float now supported on SBF via libcompiler_builtins */
+
 void args_deinit_ex(Args* self, pika_bool is_object) {
     pika_assert(self != NULL);
     link_deinit_ex(self, is_object);
@@ -510,7 +512,8 @@ Args* New_args(Args* args) {
 }
 
 char* strsFormatArg(Args* out_buffs, char* fmt, Arg* arg) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* res = NULL;
     ArgType type = arg_getType(arg);
     const char* syms[] = {"%s", "%r"};
@@ -526,7 +529,16 @@ char* strsFormatArg(Args* out_buffs, char* fmt, Arg* arg) {
                 break;
             }
             if (type == ARG_TYPE_FLOAT) {
+#ifdef PIKA_SOLANA_SBF
+                // On BPF, floats are converted to int64 for display
+#if PIKA_PRINT_LLD_ENABLE
+                fmt = strsReplace(&buffs, fmt, sym, "%lld");
+#else
+                fmt = strsReplace(&buffs, fmt, sym, "%d");
+#endif
+#else
                 fmt = strsReplace(&buffs, fmt, sym, "%f");
+#endif
                 break;
             }
             if (type == ARG_TYPE_POINTER) {
@@ -539,27 +551,27 @@ char* strsFormatArg(Args* out_buffs, char* fmt, Arg* arg) {
     }
     if (ARG_TYPE_INT == type) {
         int val = arg_getInt(arg);
-        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, val);
+        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, (intptr_t)val, 0);
         goto __exit;
     }
     if (ARG_TYPE_FLOAT == type) {
         pika_float val = arg_getFloat(arg);
-        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, val);
+        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, (intptr_t)val, 0);
         goto __exit;
     }
     if (ARG_TYPE_STRING == type) {
         char* val = arg_getStr(arg);
-        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, val);
+        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, (intptr_t)val, 0);
         goto __exit;
     }
     if (ARG_TYPE_NONE == type) {
-        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, "None");
+        res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt, (intptr_t)"None", 0);
         goto __exit;
     } else {
         Arg* arg_str = arg_toStrArg(arg);
         if (NULL != arg_str) {
             res = strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, fmt,
-                             arg_getStr(arg_str));
+                             (intptr_t)arg_getStr(arg_str), 0);
             arg_deinit(arg_str);
         }
     }
@@ -572,14 +584,16 @@ __exit:
 }
 
 char* strsFormatList(Args* out_buffs, char* fmt, PikaList* list) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* res = NULL;
     char* fmt_buff = strsCopy(&buffs, fmt);
     char* fmt_item = strsPopToken(&buffs, &fmt_buff, '%');
     Arg* res_buff = arg_newStr(fmt_item);
 
     for (size_t i = 0; i < pikaList_getSize(list); i++) {
-        Args buffs_item = {0};
+        Args buffs_item;
+        pika_platform_memset(&buffs_item, 0, sizeof(buffs_item));
         Arg* arg = pikaList_get(list, i);
         char* fmt_item = strsPopToken(&buffs_item, &fmt_buff, '%');
         fmt_item = strsAppend(&buffs_item, "%", fmt_item);

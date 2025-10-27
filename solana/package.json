@@ -1,0 +1,16 @@
+{
+  "name": "pikapython-solana",
+  "version": "1.0.0",
+  "description": "PikaPython on Solana blockchain",
+  "main": "invoke.js",
+  "scripts": {
+    "build": "./build.sh",
+    "run": "./run_pika.sh",
+    "test": "./test/run_tests.sh",
+    "test:quick": "./test/run_tests.sh --skip-build --skip-deploy",
+    "test:runner": "node test/test_runner.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4"
+  }
+}

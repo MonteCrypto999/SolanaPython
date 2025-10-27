@@ -33,14 +33,23 @@ extern "C" {
 
 #ifndef __PIKA_PALTFORM__H
 #define __PIKA_PALTFORM__H
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+#include "stdarg.h"
+#include "stdint.h"
+
+int pika_platform_vsnprintf(char* buff,
+                            size_t size,
+                            const char* fmt,
+                            va_list args);
+
+#ifndef PIKA_SOLANA_SBF
+#include "stdio.h"
+
+#include "stdlib.h"
+#include "string.h"
+#include "time.h"
 #ifdef __linux
 #include <unistd.h>
+#endif
 #endif
 
 #define ANSI_COLOR_RED "\x1b[31m"
@@ -174,17 +183,24 @@ void pika_platform_abort_handler(void);
 #ifndef pika_platform_printf
 void pika_platform_printf(char* fmt, ...);
 #endif
+// BPF-PATCHED: These are defined as macros in pika_varargs_override.h for PIKA_SOLANA_SBF
+#ifndef PIKA_SOLANA_SBF
 int pika_vprintf(char* fmt, va_list args);
 int pika_sprintf(char* buff, char* fmt, ...);
 int pika_vsprintf(char* buff, char* fmt, va_list args);
 int pika_putchar(char ch);
+int pika_snprintf(char* buff, size_t size, const char* fmt, ...);
+#endif
 int pika_platform_vsnprintf(char* buff,
                             size_t size,
                             const char* fmt,
                             va_list args);
-int pika_snprintf(char* buff, size_t size, const char* fmt, ...);
+
+int pika_pvsprintf(char** buff, const char* fmt, va_list args);
 char* pika_platform_strdup(const char* src);
 size_t pika_platform_tick_from_millisecond(size_t ms);
+
+long long pika_strtoll(const char* nptr, char** endptr, int base);
 
 /* libc config */
 void* pika_platform_malloc(size_t size);
@@ -248,6 +264,7 @@ void* pika_user_malloc(size_t size);
 void pika_user_free(void* ptr, size_t size);
 uint8_t pika_is_locked_pikaMemory(void);
 
+/* On Solana SBF, we now use native float via libcompiler_builtins */
 #if PIKA_FLOAT_TYPE_DOUBLE
 #define pika_float double
 #else

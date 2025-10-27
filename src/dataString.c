@@ -29,7 +29,7 @@
 #include "dataMemory.h"
 
 char* strCut(char* strOut, char* strIn, char startSign, char endSign) {
-    int32_t Size = strGetSize(strIn);
+    int32_t Size = (int32_t)strGetSize(strIn);
     int32_t iStart = 0;
     int32_t iEnd = Size;
     uint8_t isStart = 0;
@@ -65,7 +65,7 @@ char* strCut(char* strOut, char* strIn, char startSign, char endSign) {
 
 char* strDeleteChar(char* strOut, char* strIn, char ch) {
     int32_t iOut = 0;
-    uint32_t size = strGetSize(strIn);
+    uint32_t size = (uint32_t)strGetSize(strIn);
     for (uint32_t i = 0; i < size; i++) {
         if (ch == strIn[i]) {
             continue;
@@ -79,7 +79,7 @@ char* strDeleteChar(char* strOut, char* strIn, char ch) {
 }
 
 char* strAppendWithSize(char* strOut, char* pData, int32_t Size) {
-    int32_t strOut_i = strGetSize(strOut);
+    int32_t strOut_i = (int32_t)strGetSize(strOut);
     for (int32_t i = 0; i < Size; i++) {
         strOut[strOut_i + i] = pData[i];
     }
@@ -159,7 +159,7 @@ char* strPointToLastToken(char* strIn, char sign) {
     if (!strIsContain(strIn, sign)) {
         return strIn;
     }
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     for (int32_t i = size - 1; i > -1; i--) {
         if (strIn[i] == sign) {
             return strIn + i + 1;
@@ -177,7 +177,7 @@ char* strPopLastToken(char* strIn, char sign) {
 }
 
 char* strGetLastToken(char* strOut, char* strIn, char sign) {
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     int32_t buffSize = 0;
     for (int32_t i = size - 1; i > -1; i--) {
         if (strIn[i] != sign) {
@@ -213,7 +213,7 @@ char* strPopFirstToken(char** strIn, char sign) {
 }
 
 char* strGetFirstToken(char* strOut, char* strIn, char sign) {
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     for (int32_t i = 0; i < size; i++) {
         if (strIn[i] != sign) {
             strOut[i] = strIn[i];
@@ -227,7 +227,7 @@ char* strGetFirstToken(char* strOut, char* strIn, char sign) {
 
 char* strAppend(char* strOut, char* pData) {
     uint32_t Size = 0;
-    Size = strGetSize(pData);
+    Size = (uint32_t)strGetSize(pData);
     return strAppendWithSize(strOut, pData, Size);
 }
 
@@ -240,7 +240,7 @@ int32_t strIsStartWith(char* str, char* strStart) {
     if (str[0] != strStart[0]) {
         return 0;
     }
-    uint32_t size = strGetSize(strStart);
+    uint32_t size = (int32_t)strGetSize(strStart);
     if (0 == strncmp(str, strStart, size)) {
         return 1;
     }
@@ -248,6 +248,9 @@ int32_t strIsStartWith(char* str, char* strStart) {
 }
 
 int32_t strEqu(char* str1, char* str2) {
+    // Removed debug logging - str1 pointer was incorrectly relocated to .text
+    // sol_log_64_((uint64_t)str1, (uint64_t)str2, 0, 0, 0);
+    // msg("start strEq");
     if (NULL == str1 || NULL == str2) {
         return 0;
     }
@@ -255,6 +258,7 @@ int32_t strEqu(char* str1, char* str2) {
         /* fast return */
         return 0;
     }
+    // msg("end strEq");
     return !strcmp(str1, str2);
 }
 
@@ -263,7 +267,7 @@ char* strRemovePrefix(char* inputStr, char* prefix, char* outputStr) {
         return NULL;
     }
     size_t len = strGetSize(inputStr);
-    for (uint32_t i = strGetSize(prefix); i < len; i++) {
+    for (uint32_t i = (uint32_t)strGetSize(prefix); i < len; i++) {
         outputStr[i - strGetSize(prefix)] = inputStr[i];
     }
     return outputStr;
@@ -300,31 +304,31 @@ int32_t strGetLineSize(char* str) {
 
 char* strGetLine(char* strOut, char* strIn) {
     int32_t lineSize = strGetLineSize(strIn);
-    pika_platform_memcpy(strOut, strIn, lineSize);
+    pika_platform_memcpy(strOut, strIn, (size_t)lineSize);
     strOut[lineSize] = 0;
     return strOut;
 }
 
 char* strGetLastLine(char* strOut, char* strIn) {
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     char sign = '\n';
     uint32_t beginIndex = 0;
 
     /* skip the latest '\n' */
     for (int32_t i = size - 2; i > -1; i--) {
         if (strIn[i] == sign) {
-            beginIndex = i + 1;
+            beginIndex = (uint32_t)(i + 1);
             break;
         }
     }
 
-    pika_platform_memcpy(strOut, strIn + beginIndex, size - beginIndex);
+    pika_platform_memcpy(strOut, strIn + beginIndex, (uint32_t)(size - beginIndex));
     strOut[size - beginIndex + 1] = 0;
     return strOut;
 }
 
 int strPathFormat(char* input, char* output) {
-    int len = strlen(input);
+    int len = (int)strlen(input);
     int i = 0;
     int j = 0;
     for (i = 0; i < len; i++) {
@@ -347,8 +351,8 @@ int strPathJoin(char* input1, char* input2, char* output) {
         strPathFormat(input2, output);
         return 0;
     }
-    char* input1_format = (char*)pikaMalloc(input1_len + 1);
-    char* input2_format = (char*)pikaMalloc(input2_len + 1);
+    char* input1_format = (char*)pikaMalloc((uint32_t)(input1_len + 1));
+    char* input2_format = (char*)pikaMalloc((uint32_t)(input2_len + 1));
     strPathFormat(input1, input1_format);
     strPathFormat(input2, input2_format);
     /* join */
@@ -372,16 +376,16 @@ int strPathJoin(char* input1, char* input2, char* output) {
     }
     output[j] = '\0';
     /* free */
-    pikaFree(input1_format, input1_len + 1);
-    pikaFree(input2_format, input2_len + 1);
+    pikaFree(input1_format, (uint32_t)(input1_len + 1));
+    pikaFree(input2_format, (uint32_t)(input2_len + 1));
     return j;
 }
 
 int strPathGetFolder(char* input, char* output) {
     size_t input_len = strlen(input);
-    char* input_format = (char*)pikaMalloc(input_len + 1);
+    char* input_format = (char*)pikaMalloc((uint32_t)(input_len + 1));
     strPathFormat(input, input_format);
-    int len = strlen(input_format);
+    int len = (int)strlen(input_format);
     int i = 0;
     int j = 0;
     for (i = 0; i < len; i++) {
@@ -393,7 +397,7 @@ int strPathGetFolder(char* input, char* output) {
         output[i] = input_format[i];
     }
     output[i] = '\0';
-    pikaFree(input_format, input_len + 1);
+    pikaFree(input_format, (uint32_t)(input_len + 1));
     return i;
 }
 
@@ -403,9 +407,9 @@ int strPathGetFileName(char* input, char* output) {
         return 0;
     };
     size_t input_len = strlen(input);
-    char* input_format = (char*)pikaMalloc(input_len + 1);
+    char* input_format = (char*)pikaMalloc((uint32_t)(input_len + 1));
     strPathFormat(input, input_format);
-    int len = strlen(input_format);
+    int len = (int)strlen(input_format);
     int i = 0;
     int j = 0;
     for (i = 0; i < len; i++) {
@@ -417,13 +421,13 @@ int strPathGetFileName(char* input, char* output) {
         output[i - j - 1] = input_format[i];
     }
     output[i - j - 1] = '\0';
-    pikaFree(input_format, input_len + 1);
+    pikaFree(input_format, (uint32_t)(input_len + 1));
     return i - j - 1;
 }
 
 int strGetIndent(char* string) {
     int indent = 0;
-    int len = strGetSize(string);
+    int len = (int)strGetSize(string);
     for (int j = 0; j < len; j++) {
         if (string[j] == ' ') {
             indent++;
@@ -442,7 +446,7 @@ int charIsBlank(char ch) {
 }
 
 int strIsBlank(char* string) {
-    int len = strGetSize(string);
+    int len = (int)strGetSize(string);
     for (int j = 0; j < len; j++) {
         if (!charIsBlank(string[j])) {
             return 0;
@@ -452,7 +456,7 @@ int strIsBlank(char* string) {
 }
 
 int strOnly(char* string, char ch) {
-    int len = strGetSize(string);
+    int len = (int)strGetSize(string);
     if (len == 0) {
         return 0;
     }
@@ -465,7 +469,7 @@ int strOnly(char* string, char ch) {
 }
 
 char* strFind(char* string, char ch) {
-    int len = strGetSize(string);
+    int len = (int)strGetSize(string);
     for (int j = 0; j < len; j++) {
         if (string[j] == ch) {
             return string + j;

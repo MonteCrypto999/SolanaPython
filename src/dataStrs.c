@@ -33,7 +33,7 @@ Args* New_strBuff(void) {
 }
 
 char* strsRemovePrefix(Args* buffs_p, char* inputStr, char* prefix) {
-    int32_t size = strGetSize(inputStr);
+    int32_t size = (int32_t)strGetSize(inputStr);
     char* buff = args_getBuff(buffs_p, size);
     return strRemovePrefix(inputStr, prefix, buff);
 }
@@ -54,7 +54,7 @@ char* strsGetDirectStr(Args* buffs_p, char* argPath) {
 char* strsAppend(Args* buffs_p, char* strOrigin, char* strToAppend) {
     pika_assert(NULL != strToAppend);
     pika_assert(NULL != strOrigin);
-    int32_t size = strGetSize(strOrigin) + strGetSize(strToAppend);
+    int32_t size = (int32_t)strGetSize(strOrigin) + strGetSize(strToAppend);
     char* buff = args_getBuff(buffs_p, size);
     char* strOut = strCopy(buff, strOrigin);
     strAppend(strOut, strToAppend);
@@ -68,24 +68,24 @@ char* strsReturnOut(Args* buffs, Args* outbuffs, char* str) {
 }
 
 char* strsGetLastToken(Args* buffs_p, char* argPath, char sign) {
-    int32_t size = strGetSize(argPath);
+    int32_t size = (int32_t)strGetSize(argPath);
     char* buff = args_getBuff(buffs_p, size);
     return strGetLastToken(buff, argPath, sign);
 }
 
 char* strsCut(Args* buffs_p, char* strIn, char startSign, char endSign) {
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     char* buff = args_getBuff(buffs_p, size);
     return strCut(buff, strIn, startSign, endSign);
 }
 
 char* strsDeleteChar(Args* buffs_p, char* strIn, char ch) {
-    int32_t size = strGetSize(strIn);
+    int32_t size = (int32_t)strGetSize(strIn);
     return strDeleteChar(args_getBuff(buffs_p, size), strIn, ch);
 }
 
 static uint32_t getSizeOfFirstToken(char* str, char sign) {
-    uint32_t size = strGetSize(str);
+    uint32_t size = (int32_t)strGetSize(str);
     for (uint32_t i = 0; i < size; i++) {
         if (str[i] == sign) {
             return i;
@@ -95,7 +95,7 @@ static uint32_t getSizeOfFirstToken(char* str, char sign) {
 }
 
 char* strsGetFirstToken(Args* buffs_p, char* strIn, char sign) {
-    int32_t size = getSizeOfFirstToken(strIn, sign);
+    int32_t size = (int32_t)getSizeOfFirstToken(strIn, sign);
     return strGetFirstToken(args_getBuff(buffs_p, size), strIn, sign);
 }
 
@@ -109,7 +109,7 @@ char* strsPopLine(Args* buffs_p, char** tokens) {
 
 char* strsCopy(Args* buffs_p, char* source) {
     pika_assert(source != NULL);
-    int32_t size = strGetSize(source);
+    int32_t size = (int32_t)strGetSize(source);
     char* buff = args_getBuff(buffs_p, size);
     return strCopy(buff, source);
 }
@@ -121,6 +121,27 @@ char* strsCacheArg(Args* buffs_p, Arg* arg) {
     return res;
 }
 
+#ifdef PIKA_SOLANA_SBF
+// BPF version with explicit parameters (max 2 args to stay within 5 param limit)
+// _implN means N varargs after buffs and size
+char* _strsFormat_impl3(void* buffs_p_ptr, uint16_t buffSize, const char* fmt,
+                      intptr_t a1, intptr_t a2) {
+    // Use simplified sprintf implementation - NOTE: limited to 2 args due to BPF 5-param limit
+    Args* buffs_p = (Args*)buffs_p_ptr;
+    char* res = args_getBuff(buffs_p, buffSize);
+    extern int _pika_sprintf_impl5(char*, const char*, intptr_t, intptr_t, intptr_t, intptr_t);
+    _pika_sprintf_impl5(res, fmt, a1, a2, 0, 0);
+    return res;
+}
+
+// Variants with fewer arguments
+char* _strsFormat_impl1(void* buffs_p, uint16_t buffSize, const char* fmt) {
+    return _strsFormat_impl3(buffs_p, buffSize, fmt, 0, 0);
+}
+char* _strsFormat_impl2(void* buffs_p, uint16_t buffSize, const char* fmt, intptr_t a1) {
+    return _strsFormat_impl3(buffs_p, buffSize, fmt, a1, 0);
+}
+#else
 char* strsFormat(Args* buffs_p, uint16_t buffSize, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -129,10 +150,12 @@ char* strsFormat(Args* buffs_p, uint16_t buffSize, const char* fmt, ...) {
     va_end(args);
     return res;
 }
+#endif
 
 Arg* arg_strAppend(Arg* arg_in, char* str_to_append) {
     pika_assert(NULL != str_to_append);
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* str_out = strsAppend(&buffs, arg_getStr(arg_in), str_to_append);
     Arg* arg_out = arg_newStr(str_out);
     arg_deinit(arg_in);
@@ -159,12 +182,12 @@ char* strsReplace(Args* buffs_p, char* orig, char* rep, char* with) {
     // sanity checks and initialization
     if (!orig || !rep)
         return NULL;
-    len_rep = strlen(rep);
+    len_rep = (int)strlen(rep);
     if (len_rep == 0)
         return NULL;  // empty rep causes infinite loop during count
     if (!with)
         with = "";
-    len_with = strlen(with);
+    len_with = (int)strlen(with);
     // count the number of replacements needed
     ins = orig;
     tmp = strstr(ins, rep);
@@ -175,7 +198,7 @@ char* strsReplace(Args* buffs_p, char* orig, char* rep, char* with) {
         tmp = strstr(ins, rep);
     }
     tmp =
-        args_getBuff(buffs_p, strlen(orig) + (len_with - len_rep) * count + 1);
+        args_getBuff(buffs_p, (int32_t)(strlen(orig) + (len_with - len_rep) * count + 1));
     result = tmp;
     if (NULL == result) {
         return NULL;
@@ -187,8 +210,8 @@ char* strsReplace(Args* buffs_p, char* orig, char* rep, char* with) {
     //    orig points to the remainder of orig after "end of rep"
     while (count--) {
         ins = strstr(orig, rep);
-        len_front = ins - orig;
-        tmp = strncpy(tmp, orig, len_front) + len_front;
+        len_front = (int)(ins - orig);
+        tmp = strncpy(tmp, orig, (size_t)len_front) + len_front;
         tmp = strcpy(tmp, with) + len_with;
         orig += len_front + len_rep;  // move to next "end of rep"
     }
@@ -207,35 +230,35 @@ void strsDeinit(Args* buffs_p) {
 }
 
 char* strsPathFormat(Args* buffs_p, char* input) {
-    int32_t size = strGetSize(input);
+    int32_t size = (int32_t)strGetSize(input);
     char* buff = args_getBuff(buffs_p, size);
     strPathFormat(input, buff);
     return buff;
 }
 
 char* strsPathJoin(Args* buffs_p, char* input1, char* input2) {
-    int32_t size = strGetSize(input1) + strGetSize(input2) + 1;
+    int32_t size = (int32_t)strGetSize(input1) + strGetSize(input2) + 1;
     char* buff = args_getBuff(buffs_p, size);
     strPathJoin(input1, input2, buff);
     return buff;
 }
 
 char* strsPathGetFolder(Args* buffs_p, char* input) {
-    int32_t size = strGetSize(input);
+    int32_t size = (int32_t)strGetSize(input);
     char* buff = args_getBuff(buffs_p, size);
     strPathGetFolder(input, buff);
     return buff;
 }
 
 char* strsPathGetFileName(Args* buffs_p, char* input) {
-    int32_t size = strGetSize(input);
+    int32_t size = (int32_t)strGetSize(input);
     char* buff = args_getBuff(buffs_p, size);
     strPathGetFileName(input, buff);
     return buff;
 }
 
 char* strsTransfer(Args* buffs, char* str, size_t* iout_p) {
-    char* transfered_str = args_getBuff(buffs, strGetSize(str));
+    char* transfered_str = args_getBuff(buffs, (int32_t)strGetSize(str));
     size_t i_out = 0;
     size_t len = strGetSize(str);
     for (size_t i = 0; i < len; i++) {
@@ -290,7 +313,8 @@ char* strsTransfer(Args* buffs, char* str, size_t* iout_p) {
 }
 
 char* strsFilePreProcess_ex(Args* outbuffs, char* lines, char* endwith) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     /* replace the "\r\n" to "\n" */
     lines = strsReplace(&buffs, lines, "\r\n", "\n");
     /* clear the void line */
@@ -307,7 +331,7 @@ char* strsFilePreProcess(Args* outbuffs, char* lines) {
 }
 
 char* strsSubStr(Args* buffs_p, char* name_start, char* name_end) {
-    int32_t size = name_end - name_start;
+    int32_t size = (int32_t)(name_end - name_start);
     char* buff = args_getBuff(buffs_p, size + 1);
     for (int32_t i = 0; i < size; i++) {
         buff[i] = name_start[i];
@@ -317,7 +341,7 @@ char* strsSubStr(Args* buffs_p, char* name_start, char* name_end) {
 }
 
 char* strsRepeat(Args* buffs, char* str, int num) {
-    int32_t size = strGetSize(str) * num;
+    int32_t size = (int32_t)(int32_t)(strGetSize(str) * num);
     char* buff = args_getBuff(buffs, size + 1);
     for (int32_t i = 0; i < num; i++) {
         for (int32_t j = 0; j < strGetSize(str); j++) {

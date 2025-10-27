@@ -1,3 +1,0 @@
-pikascript-core==v1.13.4
-PikaStdLib==v1.13.4
-time==v0.2.2

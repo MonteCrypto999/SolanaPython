@@ -27,12 +27,13 @@
  */
 
 #include "PikaObj.h"
-#include <stdint.h>
+#include "stdint.h"
 #include <inttypes.h>
 #include "BaseObj.h"
 #include "PikaCompiler.h"
 #include "PikaParser.h"
 #include "PikaPlatform.h"
+/* Native float now supported on SBF via libcompiler_builtins */
 #include "dataArg.h"
 #include "dataArgs.h"
 #include "dataMemory.h"
@@ -45,7 +46,12 @@
 #include "unistd.h"
 #endif
 
+/* BPF doesn't allow writable global state - disable for Solana */
+#ifndef PIKA_SOLANA_SBF
 extern volatile VMState g_PikaVMState;
+#endif
+
+#ifndef PIKA_SOLANA_SBF
 volatile PikaObjState g_PikaObjState = {
     .helpModulesCmodule = NULL,
     .inRootObj = pika_false,
@@ -57,9 +63,12 @@ volatile PikaObjState g_PikaObjState = {
     .markSweepBusy = 0,
 #endif
 };
+#endif
 
 extern volatile PikaObj* __pikaMain;
+#ifndef PIKA_SOLANA_SBF
 static volatile ShellConfig g_REPL;
+#endif
 
 PikaObj* New_PikaStdData_Dict(Args* args);
 PikaObj* New_PikaStdData_dict_keys(Args* args);
@@ -215,16 +224,20 @@ int32_t obj_deinit(PikaObj* self) {
 #if PIKA_EVENT_ENABLE
         _VMEvent_deinit();
 #endif
+#ifndef PIKA_SOLANA_SBF
         if (NULL != g_PikaObjState.helpModulesCmodule) {
             arg_deinit(g_PikaObjState.helpModulesCmodule);
             g_PikaObjState.helpModulesCmodule = NULL;
         }
+#endif
     }
     int32_t ret = obj_deinit_no_del(self);
     pikaGC_unlock();
     if (bisRoot) {
         pikaGC_markSweep();
+#ifndef PIKA_SOLANA_SBF
         shConfig_deinit((ShellConfig*)&g_REPL);
+#endif
 #if __linux
         disable_raw_mode();
         pika_GIL_deinit();
@@ -468,7 +481,12 @@ void* obj_getPtr(PikaObj* self, char* argPath) {
 pika_float obj_getFloat(PikaObj* self, char* argPath) {
     PikaObj* obj = obj_getHostObj(self, argPath);
     if (NULL == obj) {
+#ifdef PIKA_SOLANA_SBF
+        // On BPF, pika_float is uint32_t bit pattern, so return 0
+        return 0;
+#else
         return -999.999;
+#endif
     }
     char* argName = strPointToLastToken(argPath, '.');
     pika_float res = args_getFloat(obj->list, argName);
@@ -494,6 +512,7 @@ PikaObj* obj_newObjFromConstructor(PikaObj* context,
     return self;
 }
 
+#ifndef PIKA_SOLANA_SBF
 static PikaObj* _pika_new_obj_with_args(PikaObj* (*constructor)(),
                                         void (*init_func)(PikaObj*),
                                         int num_args,
@@ -558,6 +577,7 @@ PikaObj* _pika_dict_new(int num_args, ...) {
     va_end(args);
     return dict;
 }
+#endif
 
 NativeProperty* obj_getProp(PikaObj* self) {
     Arg* aProp = obj_getArg(self, "@p_");
@@ -709,7 +729,7 @@ PikaObj* newNormalObj(NewFun newObjFun) {
 #ifdef __linux
 
 #include <errno.h>
-#include <stdio.h>
+#include "stdio.h"
 #include <termios.h>
 #include <unistd.h>
 #define ECHOFLAGS (ECHO | ECHOE | ECHOK | ECHONL)
@@ -733,7 +753,7 @@ static int set_disp_mode(int fd, int option) {
 }
 #endif
 
-static volatile uint8_t logo_printed = 0;
+// static volatile uint8_t logo_printed = 0;
 
 #if __linux
 struct termios original_termios;
@@ -772,7 +792,9 @@ static void signal_handler(int sig) {
 
 extern volatile PikaObj* __pikaMain;
 PikaObj* newRootObj(char* name, NewFun newObjFun) {
+#ifndef PIKA_SOLANA_SBF
     g_PikaObjState.inRootObj = pika_true;
+#endif
 #if PIKA_POOL_ENABLE
     mem_pool_init();
 #endif
@@ -787,13 +809,13 @@ PikaObj* newRootObj(char* name, NewFun newObjFun) {
     enable_raw_mode();
 #endif
     PikaObj* newObj = newNormalObj(newObjFun);
-    if (!logo_printed) {
-        logo_printed = 1;
+    // if (!logo_printed) {
+        // logo_printed = 1;
         pika_platform_printf("\r\n");
         pika_platform_printf("~~~/ POWERED BY \\~~~\r\n");
         pika_platform_printf("~  pikapython.com  ~\r\n");
         pika_platform_printf("~~~~~~~~~~~~~~~~~~~~\r\n");
-    }
+    // }
     if (NULL != __pikaMain) {
         pika_platform_printf("Error: root object already exists\r\n");
         pika_platform_panic_handle();
@@ -801,7 +823,9 @@ PikaObj* newRootObj(char* name, NewFun newObjFun) {
     }
     __pikaMain = newObj;
     obj_setName(newObj, name);
+#ifndef PIKA_SOLANA_SBF
     g_PikaObjState.inRootObj = pika_false;
+#endif
     return newObj;
 }
 
@@ -825,7 +849,8 @@ Arg* obj_newObjInPackage(NewFun new_obj_fun) {
 static PikaObj* _obj_initMetaObj(PikaObj* obj, char* name) {
     PikaObj* res = NULL;
     NewFun constructor = (NewFun)getNewClassObjFunByName(obj, name);
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     PikaObj* thisClass;
     PikaObj* oNew;
     if (NULL == constructor) {
@@ -1039,7 +1064,8 @@ Arg* methodArg_active(Arg* method_arg) {
     Arg* aActive = New_arg(NULL);
     MethodPropNative* propNative =
         (MethodPropNative*)arg_getContent(method_arg);
-    MethodProp prop = {0};
+    MethodProp prop;
+    pika_platform_memset(&prop, 0, sizeof(prop));
     /* active the method */
     pika_platform_memcpy(&prop, propNative, sizeof(MethodPropNative));
     aActive = arg_setStruct(aActive, "", (uint8_t*)&prop, sizeof(MethodProp));
@@ -1191,7 +1217,8 @@ static void obj_saveMethodInfo(PikaObj* self, MethodInfo* tInfo) {
         .host_obj = NULL,
     };
     char* name = tInfo->name;
-    char name_buff[PIKA_LINE_BUFF_SIZE / 2] = {0};
+    char name_buff[PIKA_LINE_BUFF_SIZE / 2];
+    pika_platform_memset(&name_buff, 0, sizeof(name_buff));
     if (NULL == tInfo->name) {
         name = strGetFirstToken(name_buff, tInfo->dec, '(');
     }
@@ -1203,6 +1230,31 @@ static void obj_saveMethodInfo(PikaObj* self, MethodInfo* tInfo) {
     args_setArg(self->list, aMethod);
 }
 
+#ifdef PIKA_SOLANA_SBF
+// BPF parameter struct for __class_defineMethodWithType
+typedef struct {
+    PikaObj* self;
+    char* declareation;
+    char* name;
+    char* typelist;
+    Method method_ptr;
+    ArgType method_type;
+    PikaObj* def_context;
+    ByteCodeFrame* bytecode_frame;
+} __class_defineMethodWithType_Params;
+
+static int32_t __class_defineMethodWithType(
+    __class_defineMethodWithType_Params* params) {
+    // Unpack parameters for BPF compatibility
+    PikaObj* self = params->self;
+    char* declareation = params->declareation;
+    char* name = params->name;
+    char* typelist = params->typelist;
+    Method method_ptr = params->method_ptr;
+    ArgType method_type = params->method_type;
+    PikaObj* def_context = params->def_context;
+    ByteCodeFrame* bytecode_frame = params->bytecode_frame;
+#else
 static int32_t __class_defineMethodWithType(PikaObj* self,
                                             char* declareation,
                                             char* name,
@@ -1211,10 +1263,13 @@ static int32_t __class_defineMethodWithType(PikaObj* self,
                                             ArgType method_type,
                                             PikaObj* def_context,
                                             ByteCodeFrame* bytecode_frame) {
+#endif
     int32_t res = 0;
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     PikaObj* method_host = self;
-    MethodInfo method_info = {0};
+    MethodInfo method_info;
+    pika_platform_memset(&method_info, 0, sizeof(method_info));
     if (NULL == method_host) {
         /* no found method object */
         res = 1;
@@ -1240,9 +1295,23 @@ int32_t class_defineConstructor(PikaObj* self,
                                 char* name,
                                 char* typelist,
                                 Method methodPtr) {
+#ifdef PIKA_SOLANA_SBF
+    return __class_defineMethodWithType(
+        &(__class_defineMethodWithType_Params){
+            .self = self,
+            .declareation = NULL,
+            .name = name,
+            .typelist = typelist,
+            .method_ptr = methodPtr,
+            .method_type = ARG_TYPE_METHOD_NATIVE_CONSTRUCTOR,
+            .def_context = NULL,
+            .bytecode_frame = NULL
+        });
+#else
     return __class_defineMethodWithType(self, NULL, name, typelist, methodPtr,
                                         ARG_TYPE_METHOD_NATIVE_CONSTRUCTOR,
                                         NULL, NULL);
+#endif
 }
 
 /* define a native method as default */
@@ -1250,8 +1319,22 @@ int32_t class_defineMethod(PikaObj* self,
                            char* name,
                            char* typelist,
                            Method methodPtr) {
+#ifdef PIKA_SOLANA_SBF
+    return __class_defineMethodWithType(
+        &(__class_defineMethodWithType_Params){
+            .self = self,
+            .declareation = NULL,
+            .name = name,
+            .typelist = typelist,
+            .method_ptr = methodPtr,
+            .method_type = ARG_TYPE_METHOD_NATIVE,
+            .def_context = NULL,
+            .bytecode_frame = NULL
+        });
+#else
     return __class_defineMethodWithType(self, NULL, name, typelist, methodPtr,
                                         ARG_TYPE_METHOD_NATIVE, NULL, NULL);
+#endif
 }
 
 /* define object method, object method is which startwith (self) */
@@ -1260,9 +1343,23 @@ int32_t class_defineRunTimeConstructor(PikaObj* self,
                                        Method methodPtr,
                                        PikaObj* def_context,
                                        ByteCodeFrame* bytecode_frame) {
+#ifdef PIKA_SOLANA_SBF
+    return __class_defineMethodWithType(
+        &(__class_defineMethodWithType_Params){
+            .self = self,
+            .declareation = declareation,
+            .name = NULL,
+            .typelist = NULL,
+            .method_ptr = methodPtr,
+            .method_type = ARG_TYPE_METHOD_CONSTRUCTOR,
+            .def_context = def_context,
+            .bytecode_frame = bytecode_frame
+        });
+#else
     return __class_defineMethodWithType(self, declareation, NULL, NULL,
                                         methodPtr, ARG_TYPE_METHOD_CONSTRUCTOR,
                                         def_context, bytecode_frame);
+#endif
 }
 
 /* define object method, object method is which startwith (self) */
@@ -1271,9 +1368,23 @@ int32_t class_defineObjectMethod(PikaObj* self,
                                  Method methodPtr,
                                  PikaObj* def_context,
                                  ByteCodeFrame* bytecode_frame) {
+#ifdef PIKA_SOLANA_SBF
+    return __class_defineMethodWithType(
+        &(__class_defineMethodWithType_Params){
+            .self = self,
+            .declareation = declareation,
+            .name = NULL,
+            .typelist = NULL,
+            .method_ptr = methodPtr,
+            .method_type = ARG_TYPE_METHOD_OBJECT,
+            .def_context = def_context,
+            .bytecode_frame = bytecode_frame
+        });
+#else
     return __class_defineMethodWithType(self, declareation, NULL, NULL,
                                         methodPtr, ARG_TYPE_METHOD_OBJECT,
                                         def_context, bytecode_frame);
+#endif
 }
 
 /* define a static method as default */
@@ -1282,9 +1393,23 @@ int32_t class_defineStaticMethod(PikaObj* self,
                                  Method methodPtr,
                                  PikaObj* def_context,
                                  ByteCodeFrame* bytecode_frame) {
+#ifdef PIKA_SOLANA_SBF
+    return __class_defineMethodWithType(
+        &(__class_defineMethodWithType_Params){
+            .self = self,
+            .declareation = declareation,
+            .name = NULL,
+            .typelist = NULL,
+            .method_ptr = methodPtr,
+            .method_type = ARG_TYPE_METHOD_STATIC,
+            .def_context = def_context,
+            .bytecode_frame = bytecode_frame
+        });
+#else
     return __class_defineMethodWithType(self, declareation, NULL, NULL,
                                         methodPtr, ARG_TYPE_METHOD_STATIC,
                                         def_context, bytecode_frame);
+#endif
 }
 
 int32_t obj_removeArg(PikaObj* self, char* argPath) {
@@ -1346,6 +1471,8 @@ pika_bool obj_isMethodExist(PikaObj* self, char* method) {
 }
 
 VMParameters* obj_run(PikaObj* self, char* cmd) {
+#ifdef PIKA_SOLANA_SBF
+#endif
     return pikaVM_run(self, cmd);
 }
 
@@ -1370,6 +1497,8 @@ enum PIKA_SHELL_STATE {
     PIKA_SHELL_STATE_WAIT_FUNC_KEY,
 };
 
+#ifndef PIKA_SOLANA_SBF
+/* BPF: Disable interactive shell/REPL functions (large stack usage) */
 static void _obj_runChar_beforeRun(PikaObj* self, ShellConfig* shell) {
     /* create the line buff for the first time */
     shell->inBlock = pika_false;
@@ -1808,6 +1937,7 @@ enum shellCTRL _inner_do_obj_runChar(PikaObj* self,
     if (inputChar == 0x7F) {
         inputChar = '\b';
     }
+#ifndef PIKA_SOLANA_SBF
     if (g_REPL.no_echo == pika_false) {
 #if __linux
         printf("%c", inputChar);
@@ -1815,6 +1945,7 @@ enum shellCTRL _inner_do_obj_runChar(PikaObj* self,
         pika_platform_printf("%c", inputChar);
 #endif
     }
+#endif
     if (inputChar == '\n' && shell->lastChar == '\r') {
         ctrl = SHELL_CTRL_CONTINUE;
         goto __exit;
@@ -1971,7 +2102,8 @@ enum shellCTRL _inner_do_obj_runChar(PikaObj* self,
         /* still in block */
         if (shell->blockBuffName != NULL && shell->inBlock) {
             /* load new line into buff */
-            Args buffs = {0};
+            Args buffs;
+            pika_platform_memset(&buffs, 0, sizeof(buffs));
             char _n = '\n';
             strAppendWithSize(shell->lineBuff, &_n, 1);
             char* shell_buff_new =
@@ -2067,7 +2199,8 @@ enum shellCTRL obj_runChar(PikaObj* self, char inputChar) {
     ShellConfig* shell = args_getHeapStruct(self->list, "@shcfg");
     if (NULL == shell) {
         /* init the shell */
-        ShellConfig newShell = {0};
+        ShellConfig newShell;
+        pika_platform_memset(&newShell, 0, sizeof(newShell));
         newShell.prefix = ">>> ";
         newShell.blockBuffName = "@sh1";
         newShell.handler = __obj_shellLineHandler_REPL;
@@ -2077,6 +2210,7 @@ enum shellCTRL obj_runChar(PikaObj* self, char inputChar) {
     }
     return _do_obj_runChar(self, inputChar, shell);
 }
+#endif /* !PIKA_SOLANA_SBF */
 
 static void _save_file(char* file_name, uint8_t* buff, size_t size) {
     pika_platform_printf("[   Info] Saving file to '%s'...\r\n", file_name);
@@ -2142,12 +2276,15 @@ PIKA_WEAK uint32_t _pikaShell_recv_file(ShellConfig* cfg,
     return _pikaShell_recv_file_direct(cfg, magic_code, pbuff);
 }
 
+#ifndef PIKA_SOLANA_SBF
+/* BPF: Disable shell functions (use runChar functions) */
 void _do_pikaScriptShell(PikaObj* self, ShellConfig* cfg) {
     /* init the shell */
     _obj_runChar_beforeRun(self, cfg);
 
     /* getchar and run */
-    char inputChar[2] = {0};
+    char inputChar[2];
+    pika_platform_memset(&inputChar, 0, sizeof(inputChar));
     while (1) {
         inputChar[1] = inputChar[0];
         inputChar[0] = _await_getchar(cfg->fn_getchar);
@@ -2163,7 +2300,8 @@ void _do_pikaScriptShell(PikaObj* self, ShellConfig* cfg) {
             /* #! xxx */
             /* start */
             char* buff = pikaMalloc(PIKA_READ_FILE_BUFF_SIZE);
-            char input[2] = {0};
+            char input[2];
+            pika_platform_memset(&input, 0, sizeof(input));
             int buff_i = 0;
             pika_bool is_exit = pika_false;
             pika_bool is_first_line = pika_true;
@@ -2208,7 +2346,13 @@ void _do_pikaScriptShell(PikaObj* self, ShellConfig* cfg) {
             pika_platform_printf(
                 "[   Info] File buff used: %d/%d (%0.2f%%)\r\n", (int)len,
                 (int)PIKA_READ_FILE_BUFF_SIZE,
-                ((float)len / (float)PIKA_READ_FILE_BUFF_SIZE));
+#ifdef PIKA_SOLANA_SBF
+                // On BPF, use integer arithmetic for percentage (no decimals)
+                (int)((len * 100) / PIKA_READ_FILE_BUFF_SIZE)
+#else
+                ((float)len / (float)PIKA_READ_FILE_BUFF_SIZE)
+#endif
+            );
 #if PIKA_SHELL_SAVE_FILE_ENABLE
             _save_file(PIKA_SHELL_SAVE_FILE_PATH, (uint8_t*)buff, len);
 #endif
@@ -2283,6 +2427,7 @@ void _temp__do_pikaScriptShell(PikaObj* self, ShellConfig* shell) {
         }
     }
 }
+#endif /* !PIKA_SOLANA_SBF */
 
 static enum shellCTRL __obj_shellLineHandler_REPL(PikaObj* self,
                                                   char* input_line,
@@ -2293,12 +2438,15 @@ static enum shellCTRL __obj_shellLineHandler_REPL(PikaObj* self,
         return SHELL_CTRL_EXIT;
     }
     /* run single line */
-    pikaVM_run_ex_cfg cfg = {0};
+    pikaVM_run_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.in_repl = pika_true;
     pikaVM_run_ex(self, input_line, &cfg);
     return SHELL_CTRL_CONTINUE;
 }
 
+/* BPF doesn't allow writable global state - disable for Solana */
+#ifndef PIKA_SOLANA_SBF
 static volatile ShellConfig g_REPL = {
     .handler = __obj_shellLineHandler_REPL,
     .prefix = ">>> ",
@@ -2308,11 +2456,14 @@ static volatile ShellConfig g_REPL = {
 #endif
     .no_echo = PIKA_SHELL_NO_ECHO,
 };
+#endif
 
+#ifndef PIKA_SOLANA_SBF
 void pikaScriptShell_withGetchar(PikaObj* self, sh_getchar getchar_fn) {
     g_REPL.fn_getchar = getchar_fn;
     _do_pikaScriptShell(self, (ShellConfig*)&g_REPL);
 }
+#endif
 
 int shConfig_deinit(ShellConfig* self) {
 #if PIKA_SHELL_HISTORY_ENABLE
@@ -2330,10 +2481,13 @@ char pika_repl_getchar(void) {
     return c;
 }
 
+#ifndef PIKA_SOLANA_SBF
 void pikaPythonShell(PikaObj* self) {
     pikaScriptShell_withGetchar(self, pika_repl_getchar);
 }
+#endif
 
+#ifndef PIKA_SOLANA_SBF
 void pikaShellSetEcho(pika_bool enable_echo) {
     if (enable_echo) {
         g_REPL.no_echo = pika_false;
@@ -2341,6 +2495,7 @@ void pikaShellSetEcho(pika_bool enable_echo) {
         g_REPL.no_echo = pika_true;
     }
 }
+#endif
 
 void obj_setErrorCode(PikaObj* self, int32_t errCode) {
     pika_assert(NULL != self->vmFrame);
@@ -2477,7 +2632,8 @@ void obj_dump(PikaObj* self) {
 uint32_t pikaGC_markSweepOnce(PikaGC* gc) {
     _pikaGC_mark(gc);
     uint32_t count = 0;
-    PikaObj* freeList[16] = {0};
+    PikaObj* freeList[16];
+    pika_platform_memset(&freeList, 0, sizeof(freeList));
     PikaObj* obj = g_PikaObjState.gcChain;
     while (NULL != obj) {
         if (!obj_getFlag(obj, OBJ_FLAG_GC_MARKED)) {
@@ -2563,7 +2719,8 @@ void _pikaGC_mark(PikaGC* gc) {
 }
 
 void pikaGC_mark(void) {
-    PikaGC gc = {0};
+    PikaGC gc;
+    pika_platform_memset(&gc, 0, sizeof(gc));
     _pikaGC_mark(&gc);
 }
 
@@ -2611,7 +2768,8 @@ uint32_t pikaGC_markSweep(void) {
 #if !PIKA_GC_MARK_SWEEP_ENABLE
     return 0;
 #else
-    PikaGC gc = {0};
+    PikaGC gc;
+    pika_platform_memset(&gc, 0, sizeof(gc));
     uint32_t count = 0;
     if (pikaGC_islock()) {
         return 0;
@@ -2634,7 +2792,8 @@ void pikaGC_markDump(void) {
 #if !PIKA_GC_MARK_SWEEP_ENABLE
     return;
 #else
-    PikaGC gc = {0};
+    PikaGC gc;
+    pika_platform_memset(&gc, 0, sizeof(gc));
     pika_platform_printf(
         "\033[32m"
         "========= PIKA GC DUMP =========\r\n"
@@ -2726,7 +2885,12 @@ PikaObj* New_PikaObj(Args* args) {
     /* List */
     self->list = New_args(NULL);
     self->refcnt = 0;
+#ifndef PIKA_SOLANA_SBF
+    /* Don't set constructor on BPF - function pointers cause callx errors */
     self->constructor = New_PikaObj;
+#else
+    self->constructor = NULL;
+#endif
     self->flag = 0;
     self->vmFrame = NULL;
 #if PIKA_GC_MARK_SWEEP_ENABLE
@@ -2774,7 +2938,8 @@ int32_t obj_newDirectObj(PikaObj* self, char* objName, NewFun newFunPtr) {
 }
 
 int32_t obj_newHostObj(PikaObj* self, char* objName) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     size_t tokenCnt = strCountSign(objName, '.');
     if (0 == tokenCnt) {
         return 0;
@@ -2800,6 +2965,7 @@ int32_t obj_newMetaObj(PikaObj* self, char* objName, NewFun newFunPtr) {
     return 0;
 }
 
+#ifndef PIKA_SOLANA_SBF
 static void _append_help(char* name) {
     if (NULL == g_PikaObjState.helpModulesCmodule) {
         g_PikaObjState.helpModulesCmodule = arg_newStr("");
@@ -2809,15 +2975,18 @@ static void _append_help(char* name) {
     _help = arg_strAppend(_help, "\r\n");
     g_PikaObjState.helpModulesCmodule = _help;
 }
+#endif
 
 int32_t obj_newObj(PikaObj* self,
                    char* objName,
                    char* className,
                    NewFun newFunPtr) {
     /* before init root object */
+#ifndef PIKA_SOLANA_SBF
     if (g_PikaObjState.inRootObj) {
         _append_help(objName);
     }
+#endif
     return obj_newMetaObj(self, objName, newFunPtr);
 }
 
@@ -2829,7 +2998,8 @@ PikaObj* obj_importModuleWithByteCode(PikaObj* self,
         obj_newHostObj((PikaObj*)__pikaMain, name);
         obj_newDirectObj((PikaObj*)__pikaMain, name, New_TinyObj);
         PikaObj* module_obj = obj_getObj((PikaObj*)__pikaMain, name);
-        pikaVM_runBytecode_ex_cfg cfg = {0};
+        pikaVM_runBytecode_ex_cfg cfg;
+        pika_platform_memset(&cfg, 0, sizeof(cfg));
         cfg.globals = module_obj;
         cfg.locals = module_obj;
         cfg.name = name;
@@ -2880,7 +3050,9 @@ void obj_printModules(PikaObj* self) {
             "Error: Not found LibObj, please execute obj_linkLibrary()\r\n");
         return;
     }
+#ifndef PIKA_SOLANA_SBF
     pika_platform_printf(arg_getStr((Arg*)g_PikaObjState.helpModulesCmodule));
+#endif
     LibObj_printModules(lib);
 }
 
@@ -2931,7 +3103,8 @@ int obj_runModule(PikaObj* self, char* module_name) {
     }
 
     PikaVMThread* vm_thread = pikaVMThread_require();
-    pikaVM_runBytecode_ex_cfg cfg = {0};
+    pikaVM_runBytecode_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.globals = self;
     cfg.locals = self;
     cfg.name = module_name;
@@ -2949,6 +3122,8 @@ PikaObj* obj_runSingleFile(PikaObj* self, char* file_name) {
     return pikaVM_runSingleFile(self, file_name);
 }
 
+#ifndef PIKA_SOLANA_SBF
+/* SBF provides its own obj_importModule with sol_ prefix support */
 int obj_importModule(PikaObj* self, char* module_name) {
     if (NULL == module_name) {
         return -1;
@@ -2961,6 +3136,7 @@ int obj_importModule(PikaObj* self, char* module_name) {
     obj_importModuleWithByteCode(self, module_name, bytecode);
     return 0;
 }
+#endif /* !PIKA_SOLANA_SBF */
 
 PikaObj* arg_getObj(Arg* self) {
     return (PikaObj*)arg_getPtr(self);
@@ -2977,9 +3153,10 @@ char* obj_toStr(PikaObj* self) {
     }
 
     /* normal object */
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* str_res =
-        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "<object at %p>", self);
+        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "<object at %p>", (intptr_t)self, 0);
     obj_setStr(self, "@res_str", str_res);
     strsDeinit(&buffs);
     return obj_getStr(self, "@res_str");
@@ -2988,9 +3165,10 @@ char* obj_toStr(PikaObj* self) {
 void pika_eventListener_registEventHandler(PikaEventListener* self,
                                            uintptr_t eventId,
                                            PikaObj* eventHandleObj) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* event_name =
-        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", eventId);
+        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", (intptr_t)eventId, 0);
     obj_newDirectObj(self, event_name, New_TinyObj);
     PikaObj* event_item = obj_getObj(self, event_name);
     obj_setRef(event_item, "eventHandleObj", eventHandleObj);
@@ -3014,27 +3192,31 @@ void pika_eventListener_registEventCallback(PikaEventListener* listener,
                                             uintptr_t eventId,
                                             Arg* eventCallback) {
     pika_assert(NULL != listener);
-    char hash_str[32] = {0};
+    char hash_str[32];
+    pika_platform_memset(&hash_str, 0, sizeof(hash_str));
     pika_sprintf(hash_str, "C%" PRIuPTR, eventId);
     obj_newDirectObj(listener, hash_str, New_TinyObj);
     PikaObj* oHandle = obj_getPtr(listener, hash_str);
     obj_setEventCallback(oHandle, eventId, eventCallback, listener);
 }
 
-Args buffs = {0};
+// Args buffs = {0};
 void pika_eventListener_removeEvent(PikaEventListener* self,
                                     uintptr_t eventId) {
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* event_name =
-        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", eventId);
+        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", (intptr_t)eventId, 0);
     obj_removeArg(self, event_name);
     strsDeinit(&buffs);
 }
 
 PikaObj* pika_eventListener_getEventHandleObj(PikaEventListener* self,
                                               uintptr_t eventId) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* event_name =
-        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", eventId);
+        strsFormat(&buffs, PIKA_SPRINTF_BUFF_SIZE, "%ld", (intptr_t)eventId, 0);
     PikaObj* event_item = obj_getObj(self, event_name);
     PikaObj* eventHandleObj = obj_getPtr(event_item, "eventHandleObj");
     strsDeinit(&buffs);
@@ -3390,7 +3572,7 @@ Arg* pika_eventListener_syncSendSignalAwaitResult(PikaEventListener* self,
 void pika_printVersion(void) {
     pika_platform_printf("pikascript-core==v%d.%d.%d (%s)\r\n",
                          PIKA_VERSION_MAJOR, PIKA_VERSION_MINOR,
-                         PIKA_VERSION_MICRO, PIKA_EDIT_TIME);
+                         PIKA_VERSION_MICRO, (intptr_t)PIKA_EDIT_TIME);
 }
 
 void pika_getVersion(char* buff) {
@@ -3459,16 +3641,23 @@ Arg* builtins_type(PikaObj* self, Arg* arg) {
 pika_float builtins_float(PikaObj* self, Arg* arg) {
     ArgType type = arg_getType(arg);
     if (ARG_TYPE_INT == type) {
-        return (pika_float)arg_getInt(arg);
+return (pika_float)arg_getInt(arg);
     }
     if (ARG_TYPE_FLOAT == type) {
         return (pika_float)arg_getFloat(arg);
     }
     if (ARG_TYPE_STRING == type) {
+#ifdef PIKA_SOLANA_SBF
+        // String→float parsing not implemented for BPF (requires complex parsing)
+        obj_setSysOut(self, "[error] float() from string not supported on BPF.");
+        obj_setErrorCode(self, 1);
+        return _PIKA_FLOAT_ERR;
+#else
         return strtod(arg_getStr(arg), NULL);
+#endif
     }
     if (ARG_TYPE_BOOL == type) {
-        return (pika_float)arg_getBool(arg);
+return (pika_float)arg_getBool(arg);
     }
     obj_setSysOut(self, "[error] convert to pika_float type failed.");
     obj_setErrorCode(self, 1);
@@ -3486,7 +3675,7 @@ PIKA_RES _transeInt(Arg* arg, int base, int64_t* res) {
         return PIKA_RES_OK;
     }
     if (ARG_TYPE_FLOAT == type) {
-        *res = (int64_t)arg_getFloat(arg);
+*res = (int64_t)arg_getFloat(arg);
         return PIKA_RES_OK;
     }
     if (ARG_TYPE_STRING == type) {
@@ -3634,23 +3823,24 @@ Arg* builtins_range(PikaObj* self, PikaTuple* ax) {
     /* set template arg to create rangeObj */
     Arg* aRangeObj = arg_newDirectObj(New_builtins_RangeObj);
     PikaObj* oRangeObj = arg_getPtr(aRangeObj);
-    RangeData tRangeData = {0};
+    RangeData tRangeData;
+    pika_platform_memset(&tRangeData, 0, sizeof(tRangeData));
     if (pikaTuple_getSize(ax) == 1) {
         int start = 0;
-        int end = arg_getInt(pikaTuple_getArg(ax, 0));
+        int end = (int)arg_getInt(pikaTuple_getArg(ax, 0));
         tRangeData.start = start;
         tRangeData.end = end;
         tRangeData.step = 1;
     } else if (pikaTuple_getSize(ax) == 2) {
-        int start = arg_getInt(pikaTuple_getArg(ax, 0));
-        int end = arg_getInt(pikaTuple_getArg(ax, 1));
+        int start = (int)arg_getInt(pikaTuple_getArg(ax, 0));
+        int end = (int)arg_getInt(pikaTuple_getArg(ax, 1));
         tRangeData.start = start;
         tRangeData.end = end;
         tRangeData.step = 1;
     } else if (pikaTuple_getSize(ax) == 3) {
-        int start = arg_getInt(pikaTuple_getArg(ax, 0));
-        int end = arg_getInt(pikaTuple_getArg(ax, 1));
-        int step = arg_getInt(pikaTuple_getArg(ax, 2));
+        int start = (int)arg_getInt(pikaTuple_getArg(ax, 0));
+        int end = (int)arg_getInt(pikaTuple_getArg(ax, 1));
+        int step = (int)arg_getInt(pikaTuple_getArg(ax, 2));
         tRangeData.start = start;
         tRangeData.end = end;
         tRangeData.step = step;
@@ -3667,14 +3857,14 @@ Arg* builtins___getitem__(PikaObj* self, Arg* obj, Arg* key) {
 Arg* builtins___setitem__(PikaObj* self, Arg* obj, Arg* key, Arg* val) {
     ArgType obj_type = arg_getType(obj);
     if (ARG_TYPE_STRING == obj_type) {
-        int index = arg_getInt(key);
+        int index = (int)arg_getInt(key);
         char* str_val = arg_getStr(val);
         char* str_pyload = arg_getStr(obj);
         str_pyload[index] = str_val[0];
         return arg_newStr(str_pyload);
     }
     if (ARG_TYPE_BYTES == obj_type) {
-        int index = arg_getInt(key);
+        int index = (int)arg_getInt(key);
         uint8_t byte_val = 0;
         if (ARG_TYPE_BYTES == arg_getType(val)) {
             uint8_t* bytes_val = arg_getBytes(val);
@@ -3747,15 +3937,15 @@ int64_t obj_getSize(PikaObj* arg_obj) {
 
 int builtins_len(PikaObj* self, Arg* arg) {
     if (ARG_TYPE_STRING == arg_getType(arg)) {
-        return strGetSize(arg_getStr(arg));
+        return (int)strGetSize(arg_getStr(arg));
     }
     if (ARG_TYPE_BYTES == arg_getType(arg)) {
-        return arg_getBytesSize(arg);
+        return (int)arg_getBytesSize(arg);
     }
 
     if (arg_isObject(arg)) {
         PikaObj* arg_obj = arg_getPtr(arg);
-        return obj_getSize(arg_obj);
+        return (int)obj_getSize(arg_obj);
     }
 
     obj_setErrorCode(self, 1);
@@ -3838,7 +4028,8 @@ Arg* builtins_tuple(PikaObj* self, PikaTuple* val) {
 }
 
 char* builtins_hex(PikaObj* self, int val) {
-    char buff[PIKA_SPRINTF_BUFF_SIZE] = {0};
+    char buff[PIKA_SPRINTF_BUFF_SIZE];
+    pika_platform_memset(&buff, 0, sizeof(buff));
     if (val >= 0) {
         __platform_sprintf(buff, "0x%02x", val);
     } else {
@@ -3854,7 +4045,8 @@ int builtins_ord(PikaObj* self, char* val) {
 }
 
 char* builtins_chr(PikaObj* self, int val) {
-    char buff[PIKA_SPRINTF_BUFF_SIZE] = {0};
+    char buff[PIKA_SPRINTF_BUFF_SIZE];
+    pika_platform_memset(&buff, 0, sizeof(buff));
     char to_str[] = "0";
     to_str[0] = val;
     __platform_sprintf(buff, "%s", to_str);
@@ -3940,7 +4132,8 @@ void builtins_print(PikaObj* self, PikaTuple* val, PikaDict* ops) {
 
 char* builtins_cformat(PikaObj* self, char* fmt, PikaTuple* var) {
 #if PIKA_SYNTAX_FORMAT_ENABLE
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     pikaMemMaxReset();
     char* res = strsFormatList(&buffs, fmt, var);
     obj_setStr(self, "_buf", res);
@@ -3986,7 +4179,8 @@ PikaObj* builtins_open(PikaObj* self, char* path, char* mode) {
 /* __dir_each */
 int32_t __dir_each(Arg* argEach, void* context) {
     if (argType_isCallable(arg_getType(argEach))) {
-        char name_buff[PIKA_LINE_BUFF_SIZE] = {0};
+        char name_buff[PIKA_LINE_BUFF_SIZE];
+        pika_platform_memset(&name_buff, 0, sizeof(name_buff));
         char* method_name =
             methodArg_getName(argEach, name_buff, sizeof(name_buff));
         Arg* arg_str = arg_newStr(method_name);
@@ -4073,7 +4267,8 @@ int builtins_hasattr(PikaObj* self, PikaObj* obj, char* name) {
 }
 
 Arg* builtins_eval(PikaObj* self, char* code) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* cmd = strsAppend(&buffs, "@res = ", code);
     obj_run(self, cmd);
     Arg* res = arg_copy(obj_getArg(self, "@res"));
@@ -4233,6 +4428,8 @@ __exit:
     return res;
 }
 
+#ifndef PIKA_SOLANA_SBF
+/* BPF: Disable interactive input function (large stack usage) */
 char* builtins_input(PikaObj* self, PikaTuple* info) {
     struct ShellConfig cfg = {
         .prefix = "",
@@ -4248,6 +4445,7 @@ char* builtins_input(PikaObj* self, PikaTuple* info) {
     arg_deinit(cfg.context);
     return res;
 }
+#endif /* !PIKA_SOLANA_SBF */
 
 extern volatile PikaObj* __pikaMain;
 void builtins_help(PikaObj* self, char* name) {
@@ -4392,6 +4590,8 @@ static PIKA_BOOL _check_no_buff_format(char* format) {
     return PIKA_TRUE;
 }
 
+#ifndef PIKA_SOLANA_SBF
+/* SBF can't handle va_list/va_copy - excluded for PIKA_SOLANA_SBF */
 int pika_pvsprintf(char** buff, const char* fmt, va_list args) {
     int required_size;
     int current_size = PIKA_SPRINTF_BUFF_SIZE;
@@ -4429,7 +4629,9 @@ int pika_pvsprintf(char** buff, const char* fmt, va_list args) {
 
     return required_size;
 }
+#endif /* !PIKA_SOLANA_SBF */
 
+#ifndef PIKA_SOLANA_SBF
 static int _no_buff_vprintf(char* fmt, va_list args) {
     int written = 0;
     while (*fmt) {
@@ -4457,7 +4659,10 @@ static int _no_buff_vprintf(char* fmt, va_list args) {
     }
     return written;
 }
+#endif /* !PIKA_SOLANA_SBF - _no_buff_vprintf */
 
+#ifndef PIKA_SOLANA_SBF
+/* BPF can't handle va_list/va_arg - excluded for PIKA_SOLANA_SBF */
 int pika_vprintf(char* fmt, va_list args) {
     int ret = 0;
     if (_check_no_buff_format(fmt)) {
@@ -4484,7 +4689,86 @@ __exit:
     }
     return ret;
 }
+#endif
 
+#ifdef PIKA_SOLANA_SBF
+// BPF version with explicit parameters (up to 3 args)
+// Core implementation - all other versions call this
+// _implN means N items in __VA_ARGS__ (buff, fmt + format args)
+int _pika_sprintf_impl5(char* buff, const char* fmt, intptr_t a1, intptr_t a2, intptr_t a3, intptr_t a4) {
+    // Simple sprintf with up to 4 parameters
+    const char* src = fmt;
+    char* dst = buff;
+    intptr_t args[4] = {a1, a2, a3, a4};
+    int arg_idx = 0;
+
+    while (*src && (dst - buff) < PIKA_SPRINTF_BUFF_SIZE - 1) {
+        if (*src == '%' && *(src + 1) && arg_idx < 4) {
+            src++; // skip '%'
+            if (*src == 'd' || *src == 'i') {
+                // Integer
+                int val = (int)args[arg_idx++];
+                char temp[32];
+                int len = 0;
+                int is_neg = val < 0;
+                if (is_neg) val = -val;
+                do {
+                    temp[len++] = '0' + (val % 10);
+                    val /= 10;
+                } while (val > 0);
+                if (is_neg) temp[len++] = '-';
+                while (len > 0) *dst++ = temp[--len];
+            } else if (*src == 's') {
+                // String
+                const char* str = (const char*)args[arg_idx++];
+                if (str) {
+                    while (*str && (dst - buff) < PIKA_SPRINTF_BUFF_SIZE - 1) {
+                        *dst++ = *str++;
+                    }
+                }
+            } else if (*src == 'c') {
+                // Character
+                *dst++ = (char)args[arg_idx++];
+            } else if (*src == 'x') {
+                // Hex (lowercase)
+                unsigned int val = (unsigned int)args[arg_idx++];
+                char temp[32];
+                int len = 0;
+                do {
+                    int digit = val % 16;
+                    temp[len++] = digit < 10 ? '0' + digit : 'a' + digit - 10;
+                    val /= 16;
+                } while (val > 0);
+                while (len > 0) *dst++ = temp[--len];
+            } else if (*src == '%') {
+                // Literal %
+                *dst++ = '%';
+            } else {
+                // Unknown format - just copy
+                *dst++ = '%';
+                *dst++ = *src;
+            }
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+    return (int)(dst - buff);
+}
+
+// Variants with fewer arguments - just call the 6-param version with 0s
+int _pika_sprintf_impl2(char* buff, const char* fmt, intptr_t a1) {
+    return _pika_sprintf_impl5(buff, fmt, a1, 0, 0, 0);
+}
+int _pika_sprintf_impl3(char* buff, const char* fmt, intptr_t a1, intptr_t a2) {
+    return _pika_sprintf_impl5(buff, fmt, a1, a2, 0, 0);
+}
+int _pika_sprintf_impl4(char* buff, const char* fmt, intptr_t a1, intptr_t a2, intptr_t a3) {
+    return _pika_sprintf_impl5(buff, fmt, a1, a2, a3, 0);
+}
+#else
+// Standard version with varargs
 int pika_sprintf(char* buff, char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -4502,12 +4786,145 @@ int pika_sprintf(char* buff, char* fmt, ...) {
     }
     return res;
 }
+#endif
 
 int pika_vsprintf(char* buff, char* fmt, va_list args) {
     /* vsnprintf */
     return pika_platform_vsnprintf(buff, PIKA_SPRINTF_BUFF_SIZE, fmt, args);
 }
 
+#ifdef PIKA_SOLANA_SBF
+// Float to string helper for SBF (no variadic printf support)
+int _pika_float_to_string(float f, char* buf, int buf_size) {
+    char* p = buf;
+    char* end = buf + buf_size - 1;
+
+    // Handle negative
+    if (f < 0.0f) {
+        if (p < end) *p++ = '-';
+        f = -f;
+    }
+
+    // Handle special cases
+    if (f != f) { // NaN
+        const char* nan = "nan";
+        while (*nan && p < end) *p++ = *nan++;
+        *p = '\0';
+        return (int)(p - buf);
+    }
+    if (f > 1e30f) { // Infinity (approximate)
+        const char* inf = "inf";
+        while (*inf && p < end) *p++ = *inf++;
+        *p = '\0';
+        return (int)(p - buf);
+    }
+
+    // Split into integer and fractional parts
+    int64_t int_part = (int64_t)f;
+    float frac_part = f - (float)int_part;
+
+    // Convert integer part
+    char int_buf[32];
+    int int_len = 0;
+    if (int_part == 0) {
+        int_buf[int_len++] = '0';
+    } else {
+        while (int_part > 0) {
+            int_buf[int_len++] = '0' + (int_part % 10);
+            int_part /= 10;
+        }
+    }
+    // Reverse and copy
+    while (int_len > 0 && p < end) {
+        *p++ = int_buf[--int_len];
+    }
+
+    // Add decimal point and fractional part (6 digits)
+    if (p < end) *p++ = '.';
+    for (int i = 0; i < 6 && p < end; i++) {
+        frac_part *= 10.0f;
+        int digit = (int)frac_part;
+        *p++ = '0' + digit;
+        frac_part -= (float)digit;
+    }
+
+    // Remove trailing zeros (keep at least one digit after decimal)
+    while (p > buf + 2 && *(p-1) == '0' && *(p-2) != '.') {
+        p--;
+    }
+
+    *p = '\0';
+    return (int)(p - buf);
+}
+
+// BPF version with explicit parameters (max 2 args after fmt)
+// Core implementation with 2 args
+int _pika_snprintf_impl3(char* buff, size_t size, const char* fmt, intptr_t a1, intptr_t a2) {
+    // Use the same implementation as _pika_sprintf_impl but with size limit
+    const char* src = fmt;
+    char* dst = buff;
+    intptr_t args[2] = {a1, a2};
+    int arg_idx = 0;
+
+    while (*src && (dst - buff) < (int)size - 1) {
+        if (*src == '%' && *(src + 1) && arg_idx < 2) {
+            src++;
+            // Skip length modifiers (l, ll, h, etc.)
+            while (*src == 'l' || *src == 'h') src++;
+            if (*src == 'd' || *src == 'i') {
+                int64_t val = (int64_t)args[arg_idx++];
+                char temp[32];
+                int len = 0;
+                int is_neg = val < 0;
+                if (is_neg) val = -val;
+                do {
+                    temp[len++] = '0' + (val % 10);
+                    val /= 10;
+                } while (val > 0);
+                if (is_neg) temp[len++] = '-';
+                while (len > 0 && (dst - buff) < (int)size - 1) *dst++ = temp[--len];
+            } else if (*src == 's') {
+                const char* str = (const char*)args[arg_idx++];
+                if (str) {
+                    while (*str && (dst - buff) < (int)size - 1) *dst++ = *str++;
+                }
+            } else if (*src == 'c') {
+                *dst++ = (char)args[arg_idx++];
+            } else if (*src == 'x') {
+                unsigned int val = (unsigned int)args[arg_idx++];
+                char temp[32];
+                int len = 0;
+                do {
+                    int digit = val % 16;
+                    temp[len++] = digit < 10 ? '0' + digit : 'a' + digit - 10;
+                    val /= 16;
+                } while (val > 0);
+                while (len > 0 && (dst - buff) < (int)size - 1) *dst++ = temp[--len];
+            } else if (*src == '%') {
+                *dst++ = '%';
+            } else {
+                if ((dst - buff) < (int)size - 2) {
+                    *dst++ = '%';
+                    *dst++ = *src;
+                }
+            }
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    if (size > 0) *dst = '\0';
+    return (int)(dst - buff);
+}
+
+// Variants with fewer arguments
+int _pika_snprintf_impl1(char* buff, size_t size, const char* fmt) {
+    return _pika_snprintf_impl3(buff, size, fmt, 0, 0);
+}
+int _pika_snprintf_impl2(char* buff, size_t size, const char* fmt, intptr_t a1) {
+    return _pika_snprintf_impl3(buff, size, fmt, a1, 0);
+}
+#else
 int pika_snprintf(char* buff, size_t size, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -4515,6 +4932,7 @@ int pika_snprintf(char* buff, size_t size, const char* fmt, ...) {
     va_end(args);
     return ret;
 }
+#endif
 
 void _do_vsysOut(char* fmt, va_list args) {
     char* fmt_buff = pikaMalloc(strGetSize(fmt) + 2);
@@ -4528,6 +4946,39 @@ void _do_vsysOut(char* fmt, va_list args) {
     pikaFree(fmt_buff, strGetSize(fmt) + 2);
 }
 
+#ifdef PIKA_SOLANA_SBF
+// BPF version with explicit parameters (max 3 varargs checked from usage)
+// _implN means N items in __VA_ARGS__ (fmt + varargs)
+void _obj_setSysOut_impl4(void* self_ptr, const char* fmt,
+                        intptr_t a1, intptr_t a2, intptr_t a3) {
+    PikaObj* self = (PikaObj*)self_ptr;
+    if (NULL != self->vmFrame) {
+        if (self->vmFrame->error.code == PIKA_RES_OK) {
+            self->vmFrame->error.code = PIKA_RES_ERR_RUNTIME_ERROR;
+        }
+        if (self->vmFrame->vm_thread->try_state == TRY_STATE_INNER) {
+            return;
+        }
+    }
+    // Format and output using sol_log
+#ifdef PIKA_SOLANA_SBF
+    char buff[256];
+    _pika_sprintf_impl5(buff, fmt, a1, a2, a3, 0);
+    sol_log(buff);
+#endif
+}
+
+// Variants with fewer arguments
+void _obj_setSysOut_impl1(void* self, const char* fmt) {
+    _obj_setSysOut_impl4(self, fmt, 0, 0, 0);
+}
+void _obj_setSysOut_impl2(void* self, const char* fmt, intptr_t a1) {
+    _obj_setSysOut_impl4(self, fmt, a1, 0, 0);
+}
+void _obj_setSysOut_impl3(void* self, const char* fmt, intptr_t a1, intptr_t a2) {
+    _obj_setSysOut_impl4(self, fmt, a1, a2, 0);
+}
+#else
 void obj_setSysOut(PikaObj* self, char* fmt, ...) {
     if (NULL != self->vmFrame) {
         if (self->vmFrame->error.code == PIKA_RES_OK) {
@@ -4542,6 +4993,7 @@ void obj_setSysOut(PikaObj* self, char* fmt, ...) {
     _do_vsysOut(fmt, args);
     va_end(args);
 }
+#endif
 
 pika_bool builtins_isinstance(PikaObj* self, Arg* object, Arg* classinfo) {
     if (!argType_isConstructor(arg_getType(classinfo)) &&
@@ -4572,7 +5024,10 @@ Arg* builtins_RangeObj___next__(PikaObj* self) {
 
 PikaObj* New_builtins(Args* args);
 PikaObj* obj_getBuiltins(void) {
-    return newNormalObj(New_builtins);
+    /* Use volatile to prevent compiler from optimizing away the function pointer
+     * when inlining newNormalObj and obj_newObjFromConstructor */
+    volatile NewFun constructor = New_builtins;
+    return newNormalObj((NewFun)constructor);
 }
 
 void builtins_bytearray___init__(PikaObj* self, Arg* bytes) {
@@ -4860,6 +5315,13 @@ PikaDict* New_PikaDict(void) {
 }
 
 PIKA_RES pikaList_set(PikaList* self, int index, Arg* arg) {
+    if (NULL == self) {
+        return PIKA_RES_ERR_ARG_NO_FOUND;
+    }
+    Args* inner = _OBJ2LIST(self);
+    if (NULL == inner) {
+        return PIKA_RES_ERR_ARG_NO_FOUND;
+    }
     char buff[11];
     char* i_str = fast_itoa(buff, index);
     int top = pikaList_getSize(self);
@@ -4867,15 +5329,22 @@ PIKA_RES pikaList_set(PikaList* self, int index, Arg* arg) {
         return PIKA_RES_ERR_OUT_OF_RANGE;
     }
     arg = arg_setName(arg, i_str);
-    args_setArg(_OBJ2LIST(self), arg);
+    args_setArg(inner, arg);
     return PIKA_RES_OK;
 }
 
 Arg* pikaList_get(PikaList* self, int index) {
     pika_assert(NULL != self);
+    if (NULL == self) {
+        return NULL;
+    }
+    Args* inner = _OBJ2LIST(self);
+    if (NULL == inner) {
+        return NULL;
+    }
     char buff[11];
     char* i_str = fast_itoa(buff, index);
-    return args_getArg(_OBJ2LIST(self), i_str);
+    return args_getArg(inner, i_str);
 }
 
 int pikaList_getInt(PikaList* self, int index) {
@@ -4912,14 +5381,21 @@ PIKA_RES pikaList_append(PikaList* self, Arg* arg) {
     if (NULL == arg) {
         return PIKA_RES_ERR_ARG_NO_FOUND;
     }
+    if (NULL == self) {
+        return PIKA_RES_ERR_ARG_NO_FOUND;
+    }
+    Args* inner = _OBJ2LIST(self);
+    if (NULL == inner) {
+        return PIKA_RES_ERR_ARG_NO_FOUND;
+    }
     int top = pikaList_getSize(self);
     char buff[11];
     char* topStr = fast_itoa(buff, top);
     Arg* arg_to_push = arg;
     arg_setName(arg_to_push, topStr);
-    args_setArg(_OBJ2LIST(self), arg_to_push);
+    args_setArg(inner, arg_to_push);
     /* top++ */
-    return args_setInt(_OBJ2LIST(self), "top", top + 1);
+    return args_setInt(inner, "top", top + 1);
 }
 
 void pikaList_deinit(PikaList* self) {
@@ -5007,7 +5483,11 @@ size_t pikaList_getSize(PikaList* self) {
     if (NULL == self) {
         return 0;
     }
-    int64_t ret = args_getInt(_OBJ2LIST(self), "top");
+    Args* inner = _OBJ2LIST(self);
+    if (NULL == inner) {
+        return 0;
+    }
+    int64_t ret = args_getInt(inner, "top");
     pika_assert(ret >= 0);
     return ret;
 }

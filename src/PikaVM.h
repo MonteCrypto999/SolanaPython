@@ -312,6 +312,19 @@ VMParameters* pikaVM_runByteCodeInconstant(PikaObj* self, uint8_t* bytecode);
 Arg* pikaVM_runByteCodeReturn(PikaObj* self,
                               const uint8_t* bytecode,
                               char* returnName);
+#ifdef PIKA_SOLANA_SBF
+// BPF parameter struct
+typedef struct {
+    PikaObj* self;
+    VMParameters* locals;
+    VMParameters* globals;
+    uint8_t* bytecode;
+    PikaVMThread* vm_thread;
+    pika_bool is_const_bytecode;
+    char* return_name;
+} PikaVM_RunByteCodeExReturnParams;
+Arg* pikaVM_runByteCode_exReturn(PikaVM_RunByteCodeExReturnParams* params);
+#else
 Arg* pikaVM_runByteCode_exReturn(PikaObj* self,
                                  VMParameters* locals,
                                  VMParameters* globals,
@@ -319,6 +332,7 @@ Arg* pikaVM_runByteCode_exReturn(PikaObj* self,
                                  PikaVMThread* vm_thread,
                                  pika_bool is_const_bytecode,
                                  char* return_name);
+#endif
 
 int pikaVMThread_init(PikaVMThread* state, uint64_t thread_id);
 PikaVMThread* pikaVMThread_require(void);
@@ -338,12 +352,15 @@ VMParameters* pikaVM_runSingleFile(PikaObj* self, char* filename);
 VMParameters* pikaVM_runByteCodeFile(PikaObj* self, char* filename);
 Arg* obj_runMethodArg(PikaObj* self, PikaObj* method_args_obj, Arg* method_arg);
 PikaObj* pikaVM_runFile(PikaObj* self, char* file_name);
+#ifndef PIKA_SOLANA_SBF
+/* BPF uses static inline version to avoid 6-parameter limit */
 Arg* _vm_slice(PikaVMFrame* vm,
                PikaObj* self,
                Arg* end,
                Arg* obj,
                Arg* start,
                int step);
+#endif
 
 typedef struct {
     VMParameters* locals;

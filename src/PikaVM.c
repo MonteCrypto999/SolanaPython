@@ -33,10 +33,23 @@
 #include "PikaPlatform.h"
 #include "dataArg.h"
 #include "dataStrs.h"
+
+#ifdef PIKA_SOLANA_SBF
+/* Native float now supported via libcompiler_builtins */
+#include <sol/return_data.h>
+
+typedef struct {
+    int* i;
+    int* argc;
+    Arg** argv;
+} CallArgContext;
+#endif
 #if PIKA_MATH_ENABLE
 #include <math.h>
 #endif
 
+/* BPF doesn't allow writable global state - disable for Solana */
+#ifndef PIKA_SOLANA_SBF
 static pika_thread_recursive_mutex_t g_pikaGIL = {0};
 volatile VMState g_PikaVMState = {
     .signal_ctrl = VM_SIGNAL_CTRL_NONE,
@@ -64,7 +77,10 @@ volatile VMState g_PikaVMState = {
     .break_point_cnt = 0,
 #endif
 };
+#endif
+#ifndef PIKA_SOLANA_SBF
 extern volatile PikaObjState g_PikaObjState;
+#endif
 
 /* private */
 static pika_bool _checkLReg(char* data);
@@ -72,6 +88,36 @@ static uint8_t _getLRegIndex(char* data);
 static PikaObj* New_Locals(Args* args);
 char* string_slice(Args* outBuffs, char* str, int start, int end);
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF stubs - no threading support */
+pika_bool pika_GIL_isInit(void) {
+    return pika_true;  /* Always "initialized" for single-threaded */
+}
+
+int pika_GIL_ENTER(void) {
+    return 0;  /* Always succeed */
+}
+
+int pika_GIL_getBareLock(void) {
+    return 1;  /* Always locked for single-threaded */
+}
+
+int pika_GIL_EXIT(void) {
+    return 0;  /* Always succeed */
+}
+
+int pika_GIL_deinit(void) {
+    return 0;  /* No-op */
+}
+
+int _VM_lock_init(void) {
+    return 0;  /* Always succeed */
+}
+
+int _VM_is_first_lock(void) {
+    return 1;  /* Always first lock in single-threaded */
+}
+#else
 pika_bool pika_GIL_isInit(void) {
     return g_pikaGIL.mutex.is_init;
 }
@@ -123,10 +169,18 @@ int _VM_lock_init(void) {
 int _VM_is_first_lock(void) {
     return g_pikaGIL.mutex.is_first_lock;
 }
+#endif
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: No global state - VM count tracked in thread context */
+int _VMEvent_getVMCnt(void) {
+    return 0;  /* Single-threaded, always 0 when checked */
+}
+#else
 int _VMEvent_getVMCnt(void) {
     return g_PikaVMState.vm_cnt;
 }
+#endif
 
 int _VMEvent_getEventPickupCnt(void) {
 #if !PIKA_EVENT_ENABLE
@@ -412,6 +466,24 @@ void __VMEvent_pickupEvent(char* info) {
 #endif
 }
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: No signal control needed for single-threaded */
+VM_SIGNAL_CTRL VMSignal_getCtrl(void) {
+    return VM_SIGNAL_CTRL_NONE;  /* Always running normally */
+}
+
+void pika_vm_exit(void) {
+    /* No-op for single-threaded */
+}
+
+void pika_vm_exit_await(void) {
+    /* No-op for single-threaded */
+}
+
+void pika_vmSignal_setCtrlClear(void) {
+    /* No-op for single-threaded */
+}
+#else
 VM_SIGNAL_CTRL VMSignal_getCtrl(void) {
     return g_PikaVMState.signal_ctrl;
 }
@@ -433,9 +505,37 @@ void pika_vm_exit_await(void) {
 void pika_vmSignal_setCtrlClear(void) {
     g_PikaVMState.signal_ctrl = VM_SIGNAL_CTRL_NONE;
 }
+#endif
 
 /* head declare start */
 static uint32_t PikaVMFrame_getInputArgNum(PikaVMFrame* vm);
+
+#ifdef PIKA_SOLANA_SBF
+// BPF parameter struct for __pikaVM_runByteCodeFrameWithState
+typedef struct {
+    PikaObj* self;
+    VMParameters* locals;
+    VMParameters* globals;
+    ByteCodeFrame* bytecode_frame;
+    uint16_t pc;
+    PikaVMThread* vm_thread;
+    pika_bool in_repl;
+} __PikaVM_RunByteCodeFrameStateParams;
+
+// BPF parameter struct for PikaVMFrame_loadArgsFromMethodArg
+typedef struct {
+    PikaVMFrame* vm;
+    PikaObj* oMethodHost;
+    Args* aLoclas;
+    Arg* aMethod;
+    char* sMethodName;
+    char* sProxyName;
+    int iNumUsed;
+} PikaVMFrame_LoadArgsFromMethodArgParams;
+
+static VMParameters* __pikaVM_runByteCodeFrameWithState(
+    __PikaVM_RunByteCodeFrameStateParams* params);
+#else
 static VMParameters* __pikaVM_runByteCodeFrameWithState(
     PikaObj* self,
     VMParameters* locals,
@@ -444,6 +544,7 @@ static VMParameters* __pikaVM_runByteCodeFrameWithState(
     uint16_t pc,
     PikaVMThread* vm_thread,
     pika_bool in_repl);
+#endif
 
 static VMParameters* _pikaVM_runByteCodeFrameWithState(
     PikaObj* self,
@@ -460,6 +561,41 @@ static void PikaVMFrame_setErrorCode(PikaVMFrame* vm, int8_t error_code) {
 }
 
 void _do_vsysOut(char* fmt, va_list args);
+
+#ifdef PIKA_SOLANA_SBF
+// BPF version with explicit parameters (max 3 varargs checked from usage)
+// _implN means N items in __VA_ARGS__ (fmt + varargs)
+void _PikaVMFrame_setSysOut_impl4(void* vm_ptr, const char* fmt,
+                                 intptr_t a1, intptr_t a2, intptr_t a3) {
+    PikaVMFrame* vm = (PikaVMFrame*)vm_ptr;
+    pika_assert(NULL != vm);
+    if (vm->error.code == PIKA_RES_OK) {
+        vm->error.code = PIKA_RES_ERR_RUNTIME_ERROR;
+    }
+    if (vm->vm_thread->try_state == TRY_STATE_INNER) {
+        return;
+    }
+    extern int _pika_sprintf_impl5(char*, const char*, intptr_t, intptr_t, intptr_t, intptr_t);
+    char buff[256];
+    _pika_sprintf_impl5(buff, fmt, a1, a2, a3, 0);
+    sol_log(buff);
+}
+
+// Variants with fewer arguments
+void _PikaVMFrame_setSysOut_impl1(void* vm, const char* fmt) {
+    _PikaVMFrame_setSysOut_impl4(vm, fmt, 0, 0, 0);
+}
+void _PikaVMFrame_setSysOut_impl2(void* vm, const char* fmt, intptr_t a1) {
+    _PikaVMFrame_setSysOut_impl4(vm, fmt, a1, 0, 0);
+}
+void _PikaVMFrame_setSysOut_impl3(void* vm, const char* fmt, intptr_t a1, intptr_t a2) {
+    _PikaVMFrame_setSysOut_impl4(vm, fmt, a1, a2, 0);
+}
+
+void PikaVMFrame_setSysOut(PikaVMFrame* vm, char* fmt, intptr_t a1, intptr_t a2, intptr_t a3) {
+    _PikaVMFrame_setSysOut_impl4(vm, fmt, a1, a2, a3);
+}
+#else
 void PikaVMFrame_setSysOut(PikaVMFrame* vm, char* fmt, ...) {
     pika_assert(NULL != vm);
     if (vm->error.code == PIKA_RES_OK) {
@@ -473,6 +609,7 @@ void PikaVMFrame_setSysOut(PikaVMFrame* vm, char* fmt, ...) {
     _do_vsysOut(fmt, args);
     va_end(args);
 }
+#endif
 
 static enum InstructIndex PikaVMFrame_getInstructWithOffset(PikaVMFrame* vm,
                                                             int32_t offset) {
@@ -674,6 +811,9 @@ static PikaObj* Locals_getLReg(PikaObj* self, char* name) {
     }
     uint8_t reg_index = _getLRegIndex(name);
     VMLocals* locals = obj_getStruct(self, "@l");
+    if (locals == NULL) {
+        return NULL;
+    }
     return locals->lreg[reg_index];
 }
 
@@ -696,7 +836,23 @@ void Locals_deinit(PikaObj* self) {
 
 static int arg_getLen(Arg* self) {
     if (arg_isObject(self)) {
-        return obj_getSize(arg_getPtr(self));
+        PikaObj* obj = arg_getPtr(self);
+        if (NULL == obj) {
+            return -1;
+        }
+#ifdef PIKA_SOLANA_SBF
+        /* SBF direct path: check if it's a list/tuple by looking for inner "list" */
+        if (obj->list != NULL) {
+            Args* innerList = _OBJ2LIST(obj);
+            if (innerList != NULL) {
+                return pikaList_getSize(obj);
+            }
+        }
+        /* Not a list/tuple, return -1 to avoid calling obj_getSize which uses bytecode */
+        return -1;
+#else
+        return obj_getSize(obj);
+#endif
     }
     if (arg_getType(self) == ARG_TYPE_STRING) {
         int strGetSizeUtf8(char* str);
@@ -740,7 +896,8 @@ static void Locals_setLReg(PikaObj* self, char* name, PikaObj* obj) {
     VMLocals* tlocals = obj_getStruct(self, "@l");
     if (NULL == tlocals) {
         /* init locals */
-        VMLocals locals = {0};
+        VMLocals locals;
+        pika_platform_memset(&locals, 0, sizeof(locals));
         obj_setStruct(self, "@l", locals);
         tlocals = obj_getStruct(self, "@l");
     }
@@ -757,6 +914,12 @@ static Arg* VM_instruction_handler_NON(PikaObj* self,
 }
 
 Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
+#ifdef PIKA_SOLANA_SBF
+    /* SBF safety: NULL checks */
+    if (aObj == NULL || aKey == NULL) {
+        return arg_newNone();
+    }
+#endif
     ArgType eType = arg_getType(aObj);
     Arg* aObjNew = NULL;
     int iIndex = 0;
@@ -773,7 +936,7 @@ Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
 
         if (iIndex >= iLen) {
             PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OUT_OF_RANGE);
-            PikaVMFrame_setSysOut(vm, "IndexError: index out of range");
+            PikaVMFrame_setSysOut(vm, "IndexError: index out of range", 0, 0, 0);
             return arg_newNone();
         }
     }
@@ -807,6 +970,106 @@ Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
         } else {
             oArg = arg_getPtr(aObj);
         }
+
+#ifdef PIKA_SOLANA_SBF
+        /* SBF direct path: handle list/dict __getitem__ without bytecode */
+        /* Guard against NULL object pointer */
+        if (oArg == NULL) {
+            sol_log("_vm_get: oArg is NULL");
+            return arg_newNone();
+        }
+        /* Check if object is a ByteArrayObj FIRST by checking for "raw" bytes attribute
+         * This must come before the "list" check because ByteArrayObj might have
+         * internal structure that looks like a list but should use byte access */
+        size_t rawSize = obj_getBytesSize(oArg, "raw");
+        if (rawSize > 0) {
+            uint8_t* rawData = obj_getBytes(oArg, "raw");
+            if (rawData != NULL) {
+                /* obj_getBytes returns pointer INCLUDING the size header (size_t prefix)
+                 * We need to skip sizeof(size_t) bytes to get actual data */
+                uint8_t* actualData = rawData + sizeof(size_t);
+                /* This is a ByteArrayObj - directly access the bytes */
+                int idx = arg_getInt(aKey);
+                /* Handle negative indices */
+                if (idx < 0) {
+                    idx = (int)rawSize + idx;
+                }
+                if (idx >= 0 && idx < (int)rawSize) {
+                    return arg_newInt(actualData[idx]);
+                }
+                return arg_newInt(0);
+            }
+        }
+        /* Check if it's a native list/tuple by trying to get the "list" pointer */
+        Args* innerList = _OBJ2LIST(oArg);
+        if (innerList != NULL) {
+            /* Has a "list" pointer - check if it's a native list with "top" counter */
+            Arg* topArg = args_getArg(innerList, "top");
+            if (topArg != NULL) {
+                /* Native list/tuple - use direct access */
+                int idx = arg_getInt(aKey);
+                Arg* res = pikaList_getArg(oArg, idx);
+                if (NULL == res) {
+                    if (NULL != vm) {
+                        PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OUT_OF_RANGE);
+                    }
+                    return arg_newNone();
+                }
+                return arg_copy(res);
+            }
+            /* Has "list" but no "top" - this is a PikaTuple created by zip, etc.
+             * Also use direct access but without error checking */
+            int idx = arg_getInt(aKey);
+            Arg* res = pikaList_getArg(oArg, idx);
+            if (NULL != res) {
+                return arg_copy(res);
+            }
+            return arg_newNone();
+        }
+        /* Check if it's a dict by trying to get the "dict" pointer */
+        Args* innerDict = _OBJ2DICT(oArg);
+        if (innerDict != NULL) {
+            /* This is a dict - use direct access */
+            char* key = arg_getStr(aKey);
+            Arg* res = pikaDict_get(oArg, key);
+            if (NULL == res) {
+                if (NULL != vm) {
+                    PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
+                }
+                return arg_newNone();
+            }
+            return arg_copy(res);
+        }
+        /* Check if object has __getitem__ method (other custom objects)
+         * The method is stored in oArg->list, not a "list" attribute */
+        Method methodFunc = obj_getNativeMethod(oArg, "__getitem__");
+        if (methodFunc != NULL) {
+            sol_log("_vm_get: calling __getitem__ method");
+            /* Set up args for the native method call */
+            Args* methodArgs = New_args(NULL);
+            args_setPtr(methodArgs, "self", oArg);
+            args_pushArg_name(methodArgs, "__key", arg_copy(aKey));
+            /* Call the native method */
+            methodFunc(oArg, methodArgs);
+            /* Get the return value (stored as "@rt") */
+            Arg* result = args_getArg(methodArgs, "@rt");
+            if (result != NULL) {
+                sol_log("_vm_get: __getitem__ returned a result");
+                result = arg_copy(result);
+            } else {
+                sol_log("_vm_get: __getitem__ returned NULL");
+            }
+            args_deinit(methodArgs);
+            if (result != NULL) {
+                return result;
+            }
+        } else {
+            sol_log("_vm_get: no __getitem__ method found");
+        }
+        /* Not a list, dict, or custom object - for SBF we can't use the bytecode path, return None */
+        return arg_newNone();
+#endif
+
         obj_setArg(oArg, "__key", aKey);
         /* clang-format off */
         PIKA_PYTHON(
@@ -824,9 +1087,22 @@ Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
             0x73, 0x5f, 0x69, 0x74, 0x65, 0x6d, 0x00, /* const pool */
         };
         if (NULL != vm) {
+#ifdef PIKA_SOLANA_SBF
+            aRes = pikaVM_runByteCode_exReturn(
+                &(PikaVM_RunByteCodeExReturnParams){
+                    .self = oArg,
+                    .locals = oArg,
+                    .globals = oArg,
+                    .bytecode = (uint8_t*)bytes,
+                    .vm_thread = vm->vm_thread,
+                    .is_const_bytecode = pika_true,
+                    .return_name = "@res_item"
+                });
+#else
             aRes = pikaVM_runByteCode_exReturn(oArg, oArg, oArg,
                                                (uint8_t*)bytes, vm->vm_thread,
                                                pika_true, "@res_item");
+#endif
         } else {
             aRes = pikaVM_runByteCodeReturn(oArg, (uint8_t*)bytes, "@res_item");
         }
@@ -844,6 +1120,8 @@ Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
     return arg_newNone();
 }
 
+#ifndef PIKA_SOLANA_SBF
+/* Original 6-parameter version - not BPF compatible (exceeds 5-param limit) */
 Arg* _vm_slice(PikaVMFrame* vm,
                PikaObj* self,
                Arg* aEnd,
@@ -889,7 +1167,8 @@ Arg* _vm_slice(PikaVMFrame* vm,
     }
 
     if (ARG_TYPE_STRING == arg_getType(aObj)) {
-        Args buffs = {0};
+        Args buffs;
+        pika_platform_memset(&buffs, 0, sizeof(buffs));
         Arg* aSliced = NULL;
         char* sSliced = string_slice(&buffs, arg_getStr(aObj), iStart, iEnd);
         if (NULL != sSliced) {
@@ -929,6 +1208,20 @@ Arg* _vm_slice(PikaVMFrame* vm,
     return _vm_get(vm, self, aStart, aObj);
 #endif
 }
+#else
+/* BPF version - force inline to avoid 6-parameter call limit */
+static inline Arg* _vm_slice(PikaVMFrame* vm,
+                              PikaObj* self,
+                              Arg* aEnd,
+                              Arg* aObj,
+                              Arg* aStart,
+                              int step) {
+    /* For BPF with PIKA_SYNTAX_SLICE_ENABLE=0, just call _vm_get */
+    /* Unused parameters: aEnd, step */
+    (void)aEnd; (void)step;
+    return _vm_get(vm, self, aStart, aObj);
+}
+#endif
 
 static Arg* VM_instruction_handler_SLC(PikaObj* self,
                                        PikaVMFrame* vm,
@@ -954,7 +1247,7 @@ static Arg* VM_instruction_handler_SLC(PikaObj* self,
             arg_getType(end) != ARG_TYPE_INT) {
             PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_INVALID_PARAM);
             PikaVMFrame_setSysOut(vm,
-                                  "TypeError: slice indices must be integers");
+                                  "TypeError: slice indices must be integers", 0, 0, 0);
             arg_deinit(end);
             arg_deinit(start);
             return arg_newNone();
@@ -968,6 +1261,7 @@ static Arg* VM_instruction_handler_SLC(PikaObj* self,
     }
     return arg_newNone();
 #else
+    /* Simplified slice handling when PIKA_SYNTAX_SLICE_ENABLE=0 */
     Arg* key = stack_popArg_alloc(&vm->stack);
     Arg* obj = stack_popArg_alloc(&vm->stack);
     Arg* res = _vm_get(vm, self, key, obj);
@@ -1018,28 +1312,62 @@ static Arg* _proxy_getattribute(PikaObj* host, char* name) {
 #if PIKA_NANO_ENABLE
     return NULL;
 #endif
+    /* NULL checks for SBF safety */
+    if (host == NULL || name == NULL) {
+        return NULL;
+    }
+#ifdef PIKA_SOLANA_SBF
+    /* BPF-safe: read values first, then check condition */
+    char c = name[0];
+    uint16_t flag_val = host->flag;
+    if ('@' != c && (flag_val & OBJ_FLAG_PROXY_GETATTRIBUTE)) {
+        Arg* aRes = obj_runMethod1(host, "__getattribute__", arg_newStr(name));
+        return aRes;
+    }
+    return NULL;
+#else
     if ('@' != name[0] && obj_getFlag(host, OBJ_FLAG_PROXY_GETATTRIBUTE)) {
         Arg* aRes = obj_runMethod1(host, "__getattribute__", arg_newStr(name));
         return aRes;
     }
     return NULL;
+#endif
 }
 
 static Arg* _proxy_getattr(PikaObj* host, char* name) {
 #if PIKA_NANO_ENABLE
     return NULL;
 #endif
+    /* NULL checks for SBF safety */
+    if (host == NULL || name == NULL) {
+        return NULL;
+    }
+#ifdef PIKA_SOLANA_SBF
+    /* BPF-safe: read values first, then check condition */
+    char c = name[0];
+    uint16_t flag_val = host->flag;
+    if ('@' != c && (flag_val & OBJ_FLAG_PROXY_GETATTR)) {
+        Arg* aRes = obj_runMethod1(host, "__getattr__", arg_newStr(name));
+        return aRes;
+    }
+    return NULL;
+#else
     if ('@' != name[0] && obj_getFlag(host, OBJ_FLAG_PROXY_GETATTR)) {
         Arg* aRes = obj_runMethod1(host, "__getattr__", arg_newStr(name));
         return aRes;
     }
     return NULL;
+#endif
 }
 
 static Arg* VM_instruction_handler_REF(PikaObj* self,
                                        PikaVMFrame* vm,
                                        char* data,
                                        Arg* aRetReg) {
+    /* NULL check for SBF safety */
+    if (data == NULL) {
+        return arg_newNone();
+    }
     PikaObj* oHost = NULL;
     char* arg_path = data;
     char* arg_name = strPointToLastToken(arg_path, '.');
@@ -1120,6 +1448,12 @@ static Arg* VM_instruction_handler_REF(PikaObj* self,
 
     /* find res in globals */
     if (arg_path == arg_name) {
+#ifdef PIKA_SOLANA_SBF
+        /* SBF safety: check for NULL pointers before dereferencing */
+        if (vm == NULL || vm->globals == NULL || vm->globals->list == NULL) {
+            goto __exit;
+        }
+#endif
         if (NULL == aRes) {
             aRes = args_getArg(vm->globals->list, arg_name);
         }
@@ -1154,7 +1488,7 @@ __exit:
     if (NULL == aRes) {
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
         PikaVMFrame_setSysOut(vm, "NameError: name '%s' is not defined",
-                              arg_path);
+                              (intptr_t)arg_path, 0, 0);
     } else {
         aRes = methodArg_setHostObj(aRes, oHost);
         if ((arg_getType(aRes) != ARG_TYPE_METHOD_NATIVE_ACTIVE) && !is_alloc) {
@@ -1397,13 +1731,56 @@ static void _kw_push(FunctionArgsInfo* f, Arg* call_arg, int i) {
     }
     arg_setIsKeyword(call_arg, pika_false);
     Hash kw_hash = call_arg->name_hash;
-    char buff[32] = {0};
+    char buff[32];
+    pika_platform_memset(&buff, 0, sizeof(buff));
     _pikaDict_setVal(f->kw, call_arg);
     char* sHash = fast_itoa(buff, kw_hash);
     args_setStr(_OBJ2KEYS(f->kw), sHash, sHash);
     pikaDict_reverse(f->kw);
 }
 
+#ifdef PIKA_SOLANA_SBF
+// BPF-safe version with 5 args (BPF register limit)
+static void _load_call_arg(PikaVMFrame* vm,
+                           Arg* call_arg,
+                           FunctionArgsInfo* f,
+                           CallArgContext* ctx) {
+    /* load the kw arg */
+    pika_assert(NULL != call_arg);
+    if (arg_getIsKeyword(call_arg)) {
+        _kw_push(f, call_arg, *(ctx->i));
+        return;
+    }
+    /* load variable arg */
+    if (f->i_arg > f->n_positional) {
+        if (f->is_vars) {
+            pikaList_append(f->tuple, call_arg);
+            return;
+        }
+    }
+    char* arg_name = strPopLastToken(f->type_list, ',');
+    /* load default from kw */
+    arg_name = _kw_pos_to_default_all(f, arg_name, ctx->argc, ctx->argv, call_arg);
+    if (((char*)1) == arg_name) {
+        /* load default from pos */
+        return;
+    }
+    /* load position arg */
+    if (_kw_to_pos_one(f, arg_name, ctx->argc, ctx->argv)) {
+        /* load pos from kw */
+        (f->n_positional_got)++;
+        /* restore the stack */
+        (*(ctx->i))--;
+        stack_pushArg(&(vm->stack), call_arg);
+        return;
+    }
+    /*load pos from pos */
+    arg_setNameHash(call_arg, hash_time33EndWith(arg_name, ':'));
+    pika_assert(call_arg != NULL);
+    ctx->argv[(*(ctx->argc))++] = call_arg;
+    (f->n_positional_got)++;
+}
+#else
 static void _load_call_arg(PikaVMFrame* vm,
                            Arg* call_arg,
                            FunctionArgsInfo* f,
@@ -1445,6 +1822,7 @@ static void _load_call_arg(PikaVMFrame* vm,
     argv[(*argc)++] = call_arg;
     (f->n_positional_got)++;
 }
+#endif
 
 static uint32_t _get_n_input_with_unpack(PikaVMFrame* vm, int n_used) {
 #if PIKA_NANO_ENABLE
@@ -1465,7 +1843,8 @@ static uint32_t _get_n_input_with_unpack(PikaVMFrame* vm, int n_used) {
     if (0 == get_star) {
         return n_input;
     }
-    Stack stack_tmp = {0};
+    Stack stack_tmp;
+    pika_platform_memset(&stack_tmp, 0, sizeof(stack_tmp));
     stack_init(&stack_tmp);
     for (int i = 0; i < n_input; i++) {
         /* unpack starred arg */
@@ -1525,6 +1904,18 @@ static uint32_t _get_n_input_with_unpack(PikaVMFrame* vm, int n_used) {
 
 #define vars_or_keys_or_default (f.is_vars || f.is_keys || f.is_default)
 #define METHOD_TYPE_LIST_MAX_LEN PIKA_LINE_BUFF_SIZE * 2
+#ifdef PIKA_SOLANA_SBF
+static int PikaVMFrame_loadArgsFromMethodArg(
+    PikaVMFrame_LoadArgsFromMethodArgParams* params) {
+    // Unpack parameters for BPF compatibility
+    PikaVMFrame* vm = params->vm;
+    PikaObj* oMethodHost = params->oMethodHost;
+    Args* aLoclas = params->aLoclas;
+    Arg* aMethod = params->aMethod;
+    char* sMethodName = params->sMethodName;
+    char* sProxyName = params->sProxyName;
+    int iNumUsed = params->iNumUsed;
+#else
 static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
                                              PikaObj* oMethodHost,
                                              Args* aLoclas,
@@ -1532,11 +1923,13 @@ static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
                                              char* sMethodName,
                                              char* sProxyName,
                                              int iNumUsed) {
+#endif
     int argc = 0;
     Arg** argv = (Arg**)pikaMalloc(sizeof(Arg*) * PIKA_ARG_NUM_MAX);
     char* buffs1 = (char*)pikaMalloc(METHOD_TYPE_LIST_MAX_LEN);
     char* buffs2 = (char*)pikaMalloc(METHOD_TYPE_LIST_MAX_LEN);
-    FunctionArgsInfo f = {0};
+    FunctionArgsInfo f;
+    pika_platform_memset(&f, 0, sizeof(f));
     char* type_list_buff = NULL;
     /* get method type list */
     f.type_list =
@@ -1582,7 +1975,7 @@ static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
                     "TypeError: %s() takes %d positional argument but %d "
                     "were "
                     "given",
-                    sMethodName, f.n_positional, f.n_input);
+                    (intptr_t)sMethodName, (intptr_t)f.n_positional, (intptr_t)f.n_input);
                 goto __exit;
             }
             break;
@@ -1600,7 +1993,7 @@ static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
                     "%d "
                     "were "
                     "given",
-                    sMethodName, f.n_positional, f.n_input);
+                    (intptr_t)sMethodName, (intptr_t)f.n_positional, (intptr_t)f.n_input);
                 goto __exit;
             }
             break;
@@ -1610,12 +2003,11 @@ static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
             int8_t n_max = f.n_positional + f.n_default;
             if (f.n_input < n_min || f.n_input > n_max) {
                 PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_INVALID_PARAM);
-                PikaVMFrame_setSysOut(
-                    vm,
-                    "TypeError: %s() takes from %d to %d positional "
-                    "arguments "
-                    "but %d were given",
-                    sMethodName, n_min, n_max, f.n_input);
+                // Split into two setSysOut calls to stay within BPF 5-param limit
+                PikaVMFrame_setSysOut(vm, "TypeError: %s() takes from %d to %d",
+                                     sMethodName, (intptr_t)n_min, (intptr_t)n_max);
+                PikaVMFrame_setSysOut(vm, " positional arguments but %d were given",
+                                     (intptr_t)f.n_input, 0, 0);
                 goto __exit;
             }
         }
@@ -1675,7 +2067,12 @@ static int PikaVMFrame_loadArgsFromMethodArg(PikaVMFrame* vm,
         if (NULL == call_arg) {
             call_arg = arg_newNone();
         }
+#ifdef PIKA_SOLANA_SBF
+        CallArgContext ctx = { &i, &argc, argv };
+        _load_call_arg(vm, call_arg, &f, &ctx);
+#else
         _load_call_arg(vm, call_arg, &f, &i, &argc, argv);
+#endif
     }
 
 /* only default */
@@ -1739,7 +2136,8 @@ static Arg* _vm_create_list_or_tuple(PikaObj* self,
     uint32_t n_arg = PikaVMFrame_getInputArgNum(vm);
     PikaObj* list = newNormalObj(constructor);
     pikaList_init(list);
-    Stack stack = {0};
+    Stack stack;
+    pika_platform_memset(&stack, 0, sizeof(stack));
     stack_init(&stack);
     /* load to local stack to change sort */
     for (int i = 0; i < n_arg; i++) {
@@ -1802,7 +2200,8 @@ static Arg* VM_instruction_handler_DCT(PikaObj* self,
 #if PIKA_BUILTIN_STRUCT_ENABLE
     uint32_t n_arg = PikaVMFrame_getInputArgNum(vm);
     PikaObj* dict = New_PikaDict();
-    Stack stack = {0};
+    Stack stack;
+    pika_platform_memset(&stack, 0, sizeof(stack));
     stack_init(&stack);
     /* load to local stack to change sort */
     for (int i = 0; i < n_arg; i++) {
@@ -1930,7 +2329,8 @@ static Arg* _VM_instruction_eval(PikaObj* self,
                                  char* sRunPath,
                                  pika_bool* bIsEval) {
     Arg* aReturn = NULL;
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     *bIsEval = pika_false;
     if (sRunPath[0] != 'e') {
         return NULL;
@@ -1940,14 +2340,15 @@ static Arg* _VM_instruction_eval(PikaObj* self,
     }
     /* eval || exec */
     *bIsEval = pika_true;
-    ByteCodeFrame bcFrame = {0};
+    ByteCodeFrame bcFrame;
+    pika_platform_memset(&bcFrame, 0, sizeof(bcFrame));
     /* generate byte code */
     byteCodeFrame_init(&bcFrame);
     Arg* aCode = stack_popArg_alloc(&(vm->stack));
     char* sCode = arg_getStr(aCode);
     char* sCmd = strsAppend(&buffs, "@res = ", sCode);
     if (PIKA_RES_OK != pika_lines2Bytes(&bcFrame, sCmd)) {
-        PikaVMFrame_setSysOut(vm, PIKA_ERR_STRING_SYNTAX_ERROR);
+        PikaVMFrame_setSysOut(vm, PIKA_ERR_STRING_SYNTAX_ERROR, 0, 0, 0);
         aReturn = NULL;
         goto __exit;
     }
@@ -1969,6 +2370,9 @@ __exit:
     return aReturn;
 }
 
+#ifdef PIKA_SOLANA_SBF
+__attribute__((noinline))
+#endif
 static Arg* VM_instruction_handler_RUN(PikaObj* self,
                                        PikaVMFrame* vm,
                                        char* data,
@@ -2034,6 +2438,83 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         }
     }
 
+    if (NULL != aReturn) {
+        goto __exit;
+    }
+
+#ifdef PIKA_SOLANA_SBF
+    /* SBF short-circuit for print - avoids deep call chains that exceed BPF limit */
+    if (strEqu(sRunPath, "print")) {
+        uint32_t n_arg = PikaVMFrame_getInputArgNum(vm);
+        if (n_arg == 0) {
+            /* Just print newline for print() with no args */
+            pika_platform_printf("\r\n");
+        } else {
+            /* Collect all args first (they come off stack in reverse order) */
+            #define SBF_PRINT_MAX_ARGS 8
+            #define SBF_PRINT_BUFF_SIZE 512
+            char* str_arr[SBF_PRINT_MAX_ARGS];
+            Arg* arg_arr[SBF_PRINT_MAX_ARGS];
+            Arg* str_arg_arr[SBF_PRINT_MAX_ARGS];
+            uint32_t actual_args = (n_arg > SBF_PRINT_MAX_ARGS) ? SBF_PRINT_MAX_ARGS : n_arg;
+
+            /* Pop all args from stack (comes in reverse order) */
+            for (uint32_t i = 0; i < actual_args; i++) {
+                arg_arr[i] = stack_popArg_alloc(&(vm->stack));
+                str_arg_arr[i] = NULL;
+                str_arr[i] = NULL;
+                if (arg_arr[i] != NULL) {
+                    str_arg_arr[i] = arg_toStrArg(arg_arr[i]);
+                    if (str_arg_arr[i] != NULL) {
+                        str_arr[i] = arg_getStr(str_arg_arr[i]);
+                    }
+                }
+            }
+
+            /* Build complete output line in buffer */
+            char* print_buff = (char*)pikaMalloc(SBF_PRINT_BUFF_SIZE);
+            if (print_buff != NULL) {
+                print_buff[0] = '\0';
+                size_t pos = 0;
+
+                /* Iterate in correct order (reverse of pop order) */
+                for (int32_t i = actual_args - 1; i >= 0; i--) {
+                    if (str_arr[i] != NULL) {
+                        size_t slen = strlen(str_arr[i]);
+                        /* Add space separator if not first */
+                        if (pos > 0 && pos < SBF_PRINT_BUFF_SIZE - 1) {
+                            print_buff[pos++] = ' ';
+                        }
+                        /* Copy string */
+                        if (pos + slen < SBF_PRINT_BUFF_SIZE - 1) {
+                            memcpy(print_buff + pos, str_arr[i], slen);
+                            pos += slen;
+                        }
+                    }
+                }
+                print_buff[pos] = '\0';
+
+                /* Single call with complete line */
+                pika_platform_printf("%s\r\n", print_buff);
+                pikaFree(print_buff, SBF_PRINT_BUFF_SIZE);
+            }
+
+            /* Clean up */
+            for (uint32_t i = 0; i < actual_args; i++) {
+                if (str_arg_arr[i] != NULL) {
+                    arg_deinit(str_arg_arr[i]);
+                }
+                if (arg_arr[i] != NULL) {
+                    arg_deinit(arg_arr[i]);
+                }
+            }
+        }
+        /* print returns None */
+        aReturn = NULL;
+        goto __exit;
+    }
+#endif
+
     /* eval and exec */
     aReturn = _VM_instruction_eval(self, vm, sRunPath, &bIsEval);
     if (bIsEval) {
@@ -2041,7 +2522,7 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
     }
 
     /* get method host obj from reg */
-    if (NULL == oMethodHost) {
+    if (NULL == oMethodHost && vm != NULL && vm->locals != NULL) {
         oMethodHost = Locals_getLReg(vm->locals, sRunPath);
     }
 
@@ -2087,6 +2568,16 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         oMethodHost = obj_getHostObjWithIsTemp(oContext, sRunPath, &bIsTemp);
     }
 
+#ifdef PIKA_SOLANA_SBF
+    // Debug: check if 'x' is in locals
+    if (vm->locals != NULL && vm->locals->list != NULL) {
+        Arg* xArg = args_getArg(vm->locals->list, "x");
+        if (xArg != NULL) {
+        } else {
+        }
+    }
+#endif
+
     /* get method host obj from local scope */
     if (NULL == oMethodHost) {
         oMethodHost = obj_getHostObjWithIsTemp(vm->locals, sRunPath, &bIsTemp);
@@ -2101,11 +2592,14 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
     if (NULL == oMethodHost) {
         /* error, not found object */
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
-        PikaVMFrame_setSysOut(vm, "Error: method '%s' no found.", sRunPath);
+        PikaVMFrame_setSysOut(vm, "Error: method '%s' no found.", (intptr_t)sRunPath, 0, 0);
         goto __exit;
     }
 
+    /* Skip assert on SBF since oMethodHost may be partial */
+#ifndef PIKA_SOLANA_SBF
     pika_assert(obj_checkAlive(oMethodHost));
+#endif
 
 #if !PIKA_NANO_ENABLE
     if (!bSkipInit && vm->in_super &&
@@ -2131,7 +2625,7 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
             aMethod = obj_getMethodArg_noalloc(vm->locals, sArgName, &arg_reg1);
         }
         /* find method in global */
-        if (NULL == aMethod) {
+        if (NULL == aMethod && vm->globals != NULL) {
             aMethod =
                 obj_getMethodArg_noalloc(vm->globals, sArgName, &arg_reg1);
             if (aMethod != NULL) {
@@ -2141,6 +2635,11 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         /* find method in builtin */
         if (NULL == aMethod) {
             oBuiltin = obj_getBuiltins();
+#ifdef PIKA_SOLANA_SBF
+            if (oBuiltin == NULL) {
+            } else {
+            }
+#endif
             aMethod = obj_getMethodArg_noalloc(oBuiltin, sArgName, &arg_reg1);
             if (aMethod != NULL) {
                 oThis = oBuiltin;
@@ -2166,7 +2665,7 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         /* error, method no found */
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
         PikaVMFrame_setSysOut(vm, "NameError: name '%s' is not defined",
-                              sRunPath);
+                              (intptr_t)sRunPath, 0, 0);
         goto __exit;
     }
 
@@ -2175,17 +2674,38 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         /* error, method no found */
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
         PikaVMFrame_setSysOut(vm, "TypeError: '%s' object is not callable",
-                              sRunPath);
+                              (intptr_t)sRunPath, 0, 0);
         goto __exit;
     }
 
     /* create sub local scope */
     oSublocals = New_Locals(NULL);
+#ifdef PIKA_SOLANA_SBF
+    if (oSublocals == NULL) {
+    } else {
+    }
+    if (oThis == NULL) {
+    } else {
+    }
+#endif
     oThis->vmFrame = vm;
 
     /* load args from PikaVMFrame to sub_local->list */
+#ifdef PIKA_SOLANA_SBF
+    iNumUsed += PikaVMFrame_loadArgsFromMethodArg(
+        &(PikaVMFrame_LoadArgsFromMethodArgParams){
+            .vm = vm,
+            .oMethodHost = oThis,
+            .aLoclas = oSublocals->list,
+            .aMethod = aMethod,
+            .sMethodName = sRunPath,
+            .sProxyName = sProxyName,
+            .iNumUsed = iNumUsed
+        });
+#else
     iNumUsed += PikaVMFrame_loadArgsFromMethodArg(
         vm, oThis, oSublocals->list, aMethod, sRunPath, sProxyName, iNumUsed);
+#endif
 
     /* load args failed */
     if (pikaVMFrame_checkErrorStack(vm) != PIKA_RES_OK) {
@@ -2221,8 +2741,21 @@ static Arg* VM_instruction_handler_RUN(PikaObj* self,
         if (NULL == aMethod) {
             goto __init_exit;
         }
+#ifdef PIKA_SOLANA_SBF
+        PikaVMFrame_loadArgsFromMethodArg(
+            &(PikaVMFrame_LoadArgsFromMethodArgParams){
+                .vm = vm,
+                .oMethodHost = oNew,
+                .aLoclas = oSublocalsInit->list,
+                .aMethod = aMethod,
+                .sMethodName = "__init__",
+                .sProxyName = NULL,
+                .iNumUsed = iNumUsed
+            });
+#else
         PikaVMFrame_loadArgsFromMethodArg(vm, oNew, oSublocalsInit->list,
                                           aMethod, "__init__", NULL, iNumUsed);
+#endif
         /* load args failed */
         if (pikaVMFrame_checkErrorStack(vm) != PIKA_RES_OK) {
             goto __init_exit;
@@ -2275,7 +2808,8 @@ static Arg* VM_instruction_handler_STR(PikaObj* self,
         return arg_setStr(arg_ret_reg, "", "");
     }
     if (strIsContain(data, '\\')) {
-        Args buffs = {0};
+        Args buffs;
+        pika_platform_memset(&buffs, 0, sizeof(buffs));
         size_t i_out = 0;
         char* transfered_str = strsTransfer(&buffs, data, &i_out);
         Arg* return_arg = arg_ret_reg;
@@ -2291,7 +2825,8 @@ static Arg* VM_instruction_handler_BYT(PikaObj* self,
                                        char* data,
                                        Arg* arg_ret_reg) {
     if (strIsContain(data, '\\')) {
-        Args buffs = {0};
+        Args buffs;
+        pika_platform_memset(&buffs, 0, sizeof(buffs));
         size_t i_out = 0;
         char* transfered_str = strsTransfer(&buffs, data, &i_out);
         Arg* return_arg = New_arg(NULL);
@@ -2347,6 +2882,11 @@ static Arg* VM_instruction_handler_OUT(PikaObj* self,
         goto __exit;
     }
     ArgType eOutArgType = arg_getType(aOut);
+#ifdef PIKA_SOLANA_SBF
+    int invokeDepth = PikaVMFrame_getInvokeDeepthNow(vm);
+    if (invokeDepth > 0) {
+    }
+#endif
     if (PikaVMFrame_getInvokeDeepthNow(vm) > 0) {
         /* in block, is a kw arg */
         arg_setIsKeyword(aOut, pika_true);
@@ -2395,6 +2935,11 @@ static Arg* VM_instruction_handler_OUT(PikaObj* self,
     /* ouput arg to context */
     if (sArgPath == sArgName) {
         res = obj_setArg_noCopy(oContext, sArgPath, aOut);
+#ifdef PIKA_SOLANA_SBF
+        if (res == PIKA_RES_OK) {
+        } else {
+        }
+#endif
         goto __exit;
     }
 
@@ -2416,7 +2961,7 @@ static Arg* VM_instruction_handler_OUT(PikaObj* self,
 __exit:
     if (res != PIKA_RES_OK) {
         PikaVMFrame_setErrorCode(vm, res);
-        PikaVMFrame_setSysOut(vm, "Error: can't set '%s'", sArgPath);
+        PikaVMFrame_setSysOut(vm, "Error: can't set '%s'", (intptr_t)sArgPath, 0, 0);
     }
     return NULL;
 }
@@ -2452,13 +2997,15 @@ static Arg* VM_instruction_handler_NUM(PikaObj* self,
         return arg_setInt(arg_ret_reg, "", strtoll(data, NULL, 0));
     }
     if (data[1] == 'o' || data[1] == 'O') {
-        char strtoll_buff[10] = {0};
+        char strtoll_buff[10];
+        pika_platform_memset(&strtoll_buff, 0, sizeof(strtoll_buff));
         strtoll_buff[0] = '0';
         pika_platform_memcpy(strtoll_buff + 1, data + 2, strGetSize(data) - 2);
         return arg_setInt(arg_ret_reg, "", strtoll(strtoll_buff, NULL, 0));
     }
     if (data[1] == 'b' || data[1] == 'B') {
-        char strtoll_buff[10] = {0};
+        char strtoll_buff[10];
+        pika_platform_memset(&strtoll_buff, 0, sizeof(strtoll_buff));
         pika_platform_memcpy(strtoll_buff, data + 2, strGetSize(data) - 2);
         return arg_setInt(arg_ret_reg, "", strtoll(strtoll_buff, NULL, 2));
     }
@@ -2471,7 +3018,7 @@ static Arg* VM_instruction_handler_NUM(PikaObj* self,
     int64_t i64 = 0;
     if (PIKA_RES_OK != fast_atoi_safe(data, &i64)) {
         PikaVMFrame_setSysOut(vm, "ValueError: invalid literal for int(): '%s'",
-                              data);
+                              (intptr_t)data, 0, 0);
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
         return NULL;
     }
@@ -2490,7 +3037,8 @@ static Arg* VM_instruction_handler_SER(PikaObj* self,
                                        PikaVMFrame* vm,
                                        char* data,
                                        Arg* arg_ret_reg) {
-    PikaVMError error = {0};
+    PikaVMError error;
+    pika_platform_memset(&error, 0, sizeof(error));
     error.code = fast_atoi(data);
     pikaVMThread_pushError(vm->vm_thread, &error);
     return NULL;
@@ -2596,26 +3144,26 @@ int operatorInfo_init(OperatorInfo* info,
         info->t1 = arg_getType(info->a1);
         if (info->t1 == ARG_TYPE_INT) {
             info->i1 = arg_getInt(info->a1);
-            info->f1 = (pika_float)info->i1;
+info->f1 = (pika_float)info->i1;
         } else if (info->t1 == ARG_TYPE_FLOAT) {
-            info->f1 = arg_getFloat(info->a1);
+info->f1 = arg_getFloat(info->a1);
             info->i1 = (int64_t)info->f1;
         } else if (info->t1 == ARG_TYPE_BOOL) {
             info->i1 = arg_getBool(info->a1);
-            info->f1 = (pika_float)info->i1;
+info->f1 = (pika_float)info->i1;
         }
     }
     info->t2 = arg_getType(info->a2);
     info->vm = vm;
     if (info->t2 == ARG_TYPE_INT) {
         info->i2 = arg_getInt(info->a2);
-        info->f2 = (pika_float)info->i2;
+info->f2 = (pika_float)info->i2;
     } else if (info->t2 == ARG_TYPE_FLOAT) {
-        info->f2 = arg_getFloat(info->a2);
+info->f2 = arg_getFloat(info->a2);
         info->i2 = (int64_t)info->f2;
     } else if (info->t2 == ARG_TYPE_BOOL) {
         info->i2 = arg_getBool(info->a2);
-        info->f2 = (pika_float)info->i2;
+info->f2 = (pika_float)info->i2;
     }
     return 0;
 }
@@ -2629,7 +3177,7 @@ static Arg* _OPT_Method_ex(PikaObj* host,
     Arg* method = obj_getMethodArgWithFullPath(host, method_name);
     if (NULL == method) {
         PikaVMFrame_setErrorCode(op->vm, err_no);
-        PikaVMFrame_setSysOut(op->vm, errinfo);
+        PikaVMFrame_setSysOut(op->vm, errinfo, 0, 0, 0);
         return NULL;
     }
     Arg* res = obj_runMethodArg1(host, method, arg_copy(arg));
@@ -2649,7 +3197,7 @@ static void _OPT_ADD(OperatorInfo* op) {
     if (argType_isObject(op->t1)) {
         if (!argType_isObject(op->t2)) {
             PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
-            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand +");
+            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand +", 0, 0, 0);
             op->res = NULL;
             return;
         }
@@ -2663,14 +3211,15 @@ static void _OPT_ADD(OperatorInfo* op) {
         (op->t2 == ARG_TYPE_STRING && op->t1 != ARG_TYPE_STRING)) {
         PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
         PikaVMFrame_setSysOut(
-            op->vm, "TypeError: unsupported operand + between str and non-str");
+            op->vm, "TypeError: unsupported operand + between str and non-str", 0, 0, 0);
         op->res = NULL;
         return;
     }
     if ((op->t1 == ARG_TYPE_STRING) && (op->t2 == ARG_TYPE_STRING)) {
         char* num1_s = NULL;
         char* num2_s = NULL;
-        Args str_opt_buffs = {0};
+        Args str_opt_buffs;
+        pika_platform_memset(&str_opt_buffs, 0, sizeof(str_opt_buffs));
         num1_s = arg_getStr(op->a1);
         num2_s = arg_getStr(op->a2);
         char* opt_str_out = strsAppend(&str_opt_buffs, num1_s, num2_s);
@@ -2693,7 +3242,7 @@ static void _OPT_ADD(OperatorInfo* op) {
 #endif
     /* match float */
     if ((op->t1 == ARG_TYPE_FLOAT) || op->t2 == ARG_TYPE_FLOAT) {
-        op->res = arg_setFloat(op->res, "", op->f1 + op->f2);
+op->res = arg_setFloat(op->res, "", op->f1 + op->f2);
         return;
     }
     /* int is default */
@@ -2706,7 +3255,7 @@ static void _OPT_SUB(OperatorInfo* op) {
     if (argType_isObject(op->t1)) {
         if (!argType_isObject(op->t2)) {
             PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
-            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand +");
+            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand +", 0, 0, 0);
             op->res = NULL;
             return;
         }
@@ -2726,7 +3275,7 @@ static void _OPT_SUB(OperatorInfo* op) {
         }
     }
     if ((op->t1 == ARG_TYPE_FLOAT) || op->t2 == ARG_TYPE_FLOAT) {
-        op->res = arg_setFloat(op->res, "", op->f1 - op->f2);
+op->res = arg_setFloat(op->res, "", op->f1 - op->f2);
         return;
     }
     op->res = arg_setInt(op->res, "", op->i1 - op->i2);
@@ -2798,7 +3347,7 @@ static void _OPT_EQU(OperatorInfo* op) {
         goto __exit;
     }
     /* default: int bool, and float */
-    is_equ = ((op->f1 - op->f2) * (op->f1 - op->f2) < (pika_float)0.000001);
+is_equ = ((op->f1 - op->f2) * (op->f1 - op->f2) < (pika_float)0.000001);
     goto __exit;
 __exit:
     if (op->opt[0] == '=') {
@@ -2828,14 +3377,14 @@ static void _OPT_POW(OperatorInfo* op) {
             rhs >>= 1;
         }
         if (op->i2 < 0) {
-            op->res = arg_setFloat(op->res, "", 1.0 / ret);
+op->res = arg_setFloat(op->res, "", 1.0 / ret);
         } else {
             op->res = arg_setInt(op->res, "", ret);
         }
         return;
     }
     if (op->t1 == ARG_TYPE_FLOAT && op->t2 == ARG_TYPE_INT) {
-        float res = 1;
+float res = 1;
         for (int i = 0; i < op->i2; i++) {
             res = res * op->f1;
         }
@@ -2843,15 +3392,24 @@ static void _OPT_POW(OperatorInfo* op) {
         return;
     }
 #if PIKA_MATH_ENABLE
-    float res = 1;
-    res = pow(op->f1, op->f2);
-    op->res = arg_setFloat(op->res, "", res);
-    return;
+    #ifdef PIKA_SOLANA_SBF
+        // TODO: Implement bitfloat pow() for BPF
+        // For now, power with float exponents is not supported on BPF
+        PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
+        PikaVMFrame_setSysOut(op->vm, "TypeError: float power not supported on BPF");
+        op->res = NULL;
+        return;
+    #else
+        float res = 1;
+        res = pow(op->f1, op->f2);
+        op->res = arg_setFloat(op->res, "", res);
+        return;
+    #endif
 #else
     PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
     PikaVMFrame_setSysOut(op->vm,
                           "Operation float ** float is not enabled, please set "
-                          "PIKA_MATH_ENABLE");
+                          "PIKA_MATH_ENABLE", 0, 0, 0);
 #endif
 }
 
@@ -2862,7 +3420,7 @@ static void _OPT_MUL(OperatorInfo* op) {
         return;
     }
     if ((op->t1 == ARG_TYPE_FLOAT) || op->t2 == ARG_TYPE_FLOAT) {
-        op->res = arg_setFloat(op->res, "", op->f1 * op->f2);
+op->res = arg_setFloat(op->res, "", op->f1 * op->f2);
         return;
     }
     if ((op->t1 == ARG_TYPE_STRING && op->t2 == ARG_TYPE_INT) ||
@@ -2876,7 +3434,8 @@ static void _OPT_MUL(OperatorInfo* op) {
             str = arg_getStr(op->a2);
             num = op->i1;
         }
-        Args str_opt_buffs = {0};
+        Args str_opt_buffs;
+        pika_platform_memset(&str_opt_buffs, 0, sizeof(str_opt_buffs));
         char* opt_str_out = strsRepeat(&str_opt_buffs, str, num);
         op->res = arg_setStr(op->res, "", opt_str_out);
         strsDeinit(&str_opt_buffs);
@@ -2923,7 +3482,7 @@ static void _OPT_MUL(OperatorInfo* op) {
         }
         if (NULL == __mul__) {
             PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
-            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand *");
+            PikaVMFrame_setSysOut(op->vm, "TypeError: unsupported operand *", 0, 0, 0);
             op->res = NULL;
             return;
         }
@@ -2938,7 +3497,8 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
                                        PikaVMFrame* vm,
                                        char* data,
                                        Arg* arg_ret_reg) {
-    OperatorInfo op = {0};
+    OperatorInfo op;
+    pika_platform_memset(&op, 0, sizeof(op));
     op.num = PikaVMFrame_getInputArgNum(vm);
     arg_newReg(arg_reg1, PIKA_ARG_BUFF_SIZE);
     arg_newReg(arg_reg2, PIKA_ARG_BUFF_SIZE);
@@ -2954,7 +3514,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
     /* init operator info */
     int ret = operatorInfo_init(&op, self, vm, data, arg_ret_reg);
     if (0 != ret) {
-        PikaVMFrame_setSysOut(vm, PIKA_ERR_STRING_SYNTAX_ERROR);
+        PikaVMFrame_setSysOut(vm, PIKA_ERR_STRING_SYNTAX_ERROR, 0, 0, 0);
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_SYNTAX_ERROR);
         return NULL;
     }
@@ -2964,7 +3524,17 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
             goto __exit;
         case '%':
             if ((op.t1 == ARG_TYPE_INT) && (op.t2 == ARG_TYPE_INT)) {
+#ifdef PIKA_SOLANA_SBF
+                // BPF-safe signed modulo using unsigned operations
+                int64_t result;
+                uint64_t abs_i1 = (op.i1 < 0) ? -(uint64_t)op.i1 : (uint64_t)op.i1;
+                uint64_t abs_i2 = (op.i2 < 0) ? -(uint64_t)op.i2 : (uint64_t)op.i2;
+                uint64_t abs_result = abs_i1 % abs_i2;
+                result = (op.i1 < 0) ? -(int64_t)abs_result : (int64_t)abs_result;
+                op.res = arg_setInt(op.res, "", result);
+#else
                 op.res = arg_setInt(op.res, "", op.i1 % op.i2);
+#endif
                 goto __exit;
             }
 #if PIKA_MATH_ENABLE
@@ -2975,7 +3545,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
 #endif
             PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
             PikaVMFrame_setSysOut(
-                vm, "TypeError: unsupported operand type(s) for %%: 'float'");
+                vm, "TypeError: unsupported operand type(s) for %%: 'float'", 0, 0, 0);
             op.res = NULL;
             goto __exit;
         case '-':
@@ -2989,7 +3559,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
     if (data[1] == 0) {
         switch (data[0]) {
             case '<':
-                op.res = arg_setBool(op.res, "", op.f1 < op.f2);
+op.res = arg_setBool(op.res, "", op.f1 < op.f2);
                 goto __exit;
             case '*':
                 _OPT_MUL(&op);
@@ -3002,7 +3572,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
                 PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
                 PikaVMFrame_setSysOut(vm,
                                       "TypeError: unsupported operand "
-                                      "type(s) for &: 'float'");
+                                      "type(s) for &: 'float'", 0, 0, 0);
                 op.res = NULL;
                 goto __exit;
             case '|':
@@ -3013,7 +3583,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
                 PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
                 PikaVMFrame_setSysOut(vm,
                                       "TypeError: unsupported operand "
-                                      "type(s) for |: 'float'");
+                                      "type(s) for |: 'float'", 0, 0, 0);
                 op.res = NULL;
                 goto __exit;
             case '~':
@@ -3024,21 +3594,21 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
                 PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
                 PikaVMFrame_setSysOut(vm,
                                       "TypeError: unsupported operand "
-                                      "type(s) for ~: 'float'");
+                                      "type(s) for ~: 'float'", 0, 0, 0);
                 op.res = NULL;
                 goto __exit;
             case '/':
                 if (0 == op.f2) {
                     PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
                     PikaVMFrame_setSysOut(
-                        vm, "ZeroDivisionError: division by zero");
+                        vm, "ZeroDivisionError: division by zero", 0, 0, 0);
                     op.res = NULL;
                     goto __exit;
                 }
-                op.res = arg_setFloat(op.res, "", op.f1 / op.f2);
+op.res = arg_setFloat(op.res, "", op.f1 / op.f2);
                 goto __exit;
             case '>':
-                op.res = arg_setInt(op.res, "", op.f1 > op.f2);
+op.res = arg_setBool(op.res, "", op.f1 > op.f2);
                 goto __exit;
             case '^':
                 if ((op.t1 == ARG_TYPE_INT) && (op.t2 == ARG_TYPE_INT)) {
@@ -3048,7 +3618,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
                 PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
                 PikaVMFrame_setSysOut(vm,
                                       "TypeError: unsupported operand "
-                                      "type(s) for ^: 'float'");
+                                      "type(s) for ^: 'float'", 0, 0, 0);
                 op.res = NULL;
                 goto __exit;
         }
@@ -3121,7 +3691,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
         PikaVMFrame_setSysOut(vm,
                               "Operation 'in' is not supported for this "
-                              "type");
+                              "type", 0, 0, 0);
         op.res = NULL;
         goto __exit;
     }
@@ -3131,7 +3701,18 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
     }
     if (data[0] == '/' && data[1] == '/') {
         if ((op.t1 == ARG_TYPE_INT) && (op.t2 == ARG_TYPE_INT)) {
+#ifdef PIKA_SOLANA_SBF
+            // BPF-safe signed division using unsigned operations
+            int64_t result;
+            uint64_t abs_i1 = (op.i1 < 0) ? -(uint64_t)op.i1 : (uint64_t)op.i1;
+            uint64_t abs_i2 = (op.i2 < 0) ? -(uint64_t)op.i2 : (uint64_t)op.i2;
+            uint64_t abs_result = abs_i1 / abs_i2;
+            // Result is negative if signs differ
+            result = ((op.i1 < 0) != (op.i2 < 0)) ? -(int64_t)abs_result : (int64_t)abs_result;
+            op.res = arg_setInt(op.res, "", result);
+#else
             op.res = arg_setInt(op.res, "", op.i1 / op.i2);
+#endif
             goto __exit;
         }
 #if PIKA_MATH_ENABLE
@@ -3144,7 +3725,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
         PikaVMFrame_setSysOut(
             vm,
             "Operation float \\\\ float is not enabled, please set "
-            "PIKA_MATH_ENABLE");
+            "PIKA_MATH_ENABLE", 0, 0, 0);
         op.res = NULL;
         goto __exit;
     }
@@ -3189,7 +3770,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
         }
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
         PikaVMFrame_setSysOut(
-            vm, "TypeError: unsupported operand type(s) for >>: 'float'");
+            vm, "TypeError: unsupported operand type(s) for >>: 'float'", 0, 0, 0);
         op.res = NULL;
         goto __exit;
     }
@@ -3200,7 +3781,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
         }
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
         PikaVMFrame_setSysOut(
-            vm, "TypeError: unsupported operand type(s) for <<: 'float'");
+            vm, "TypeError: unsupported operand type(s) for <<: 'float'", 0, 0, 0);
         op.res = NULL;
         goto __exit;
     }
@@ -3221,7 +3802,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
         op.res = arg_setBool(op.res, "", !bTrue);
         goto __exit;
     }
-    PikaVMFrame_setSysOut(vm, "Error: unknown operator '%s'", data);
+    PikaVMFrame_setSysOut(vm, "Error: unknown operator '%s'", data, 0, 0);
     PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
 __exit:
     if (NULL != op.a1) {
@@ -3308,7 +3889,7 @@ static Arg* VM_instruction_handler_RIS(PikaObj* self,
         if (err > 0) {
             PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_INVALID_PARAM);
             PikaVMFrame_setSysOut(
-                vm, "TypeError: exceptions must derive from BaseException");
+                vm, "TypeError: exceptions must derive from BaseException", 0, 0, 0);
             goto __exit;
         }
         PikaVMFrame_setErrorCode(vm, err);
@@ -3396,7 +3977,7 @@ static Arg* VM_instruction_handler_DEL(PikaObj* self,
         goto __exit;
     }
     PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_OPERATION_FAILED);
-    PikaVMFrame_setSysOut(vm, "NameError: name '%s' is not defined", data);
+    PikaVMFrame_setSysOut(vm, "NameError: name '%s' is not defined", (intptr_t)data, 0, 0);
 __exit:
     return NULL;
 }
@@ -3462,7 +4043,8 @@ static Arg* VM_instruction_handler_IMP(PikaObj* self,
                                        PikaVMFrame* vm,
                                        char* data,
                                        Arg* arg_ret_reg) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* sModuleNameRedirect = NULL;
     if (NULL == data) {
         goto __exit;
@@ -3497,7 +4079,7 @@ static Arg* VM_instruction_handler_IMP(PikaObj* self,
     }
     PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
     PikaVMFrame_setSysOut(vm, "ModuleNotFoundError: No module named '%s'",
-                          data);
+                          (intptr_t)data, 0, 0);
 __exit:
     strsDeinit(&buffs);
     return NULL;
@@ -3512,7 +4094,7 @@ static Arg* VM_instruction_handler_INH(PikaObj* self,
     if (NULL == bytecode) {
         PikaVMFrame_setErrorCode(vm, PIKA_RES_ERR_ARG_NO_FOUND);
         PikaVMFrame_setSysOut(vm, "ModuleNotFoundError: No module named '%s'",
-                              data);
+                              (intptr_t)data, 0, 0);
         return NULL;
     }
     pikaVM_runByteCode(self, bytecode);
@@ -3541,6 +4123,8 @@ struct VMInstructionSetItem {
     const VMInstructionSet* ins_set;
 };
 
+/* BPF doesn't allow writable global state - disable for Solana */
+#ifndef PIKA_SOLANA_SBF
 static struct {
     const VMInstructionSetItem default_ins_set;
     VMInstructionSetItem* list;
@@ -3560,7 +4144,15 @@ static struct {
     .signature_dict = {PIKA_INSTRUCT_SIGNATURE_DICT},
 #endif
 };
+#endif
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: No dynamic instruction set registration - use default only */
+pika_bool pikaVM_registerInstructionSet(VMInstructionSet* ins_set) {
+    (void)ins_set;
+    return pika_false;  /* Dynamic registration not supported */
+}
+#else
 pika_bool pikaVM_registerInstructionSet(VMInstructionSet* ins_set) {
     pika_assert(NULL != ins_set);
 
@@ -3603,7 +4195,20 @@ pika_bool pikaVM_registerInstructionSet(VMInstructionSet* ins_set) {
 
     return pika_true;
 }
+#endif
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: Use default instruction set directly */
+extern const VMInstructionSet VM_default_instruction_set;
+static const VMInstruction* instructUnit_getInstruct(
+    enum InstructIndex ins_idx) {
+    const VMInstructionSet* set = &VM_default_instruction_set;
+    if ((ins_idx >= set->op_idx_start) && (ins_idx <= set->op_idx_end)) {
+        return &(set->instructions[ins_idx - set->op_idx_start]);
+    }
+    return NULL;
+}
+#else
 static const VMInstruction* instructUnit_getInstruct(
     enum InstructIndex ins_idx) {
     VMInstructionSetItem* item = g_PikaVMInsSet.recent;
@@ -3628,6 +4233,7 @@ static const VMInstruction* instructUnit_getInstruct(
 
     return NULL;
 }
+#endif
 
 static enum InstructIndex __find_ins_idx_in_ins_set(
     char* ins_str,
@@ -3644,6 +4250,12 @@ static enum InstructIndex __find_ins_idx_in_ins_set(
     return __INSTRUCTION_UNKNOWN;
 }
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: Use default instruction set directly */
+enum InstructIndex pikaVM_getInstructFromAsm(char* ins_str) {
+    return __find_ins_idx_in_ins_set(ins_str, &VM_default_instruction_set);
+}
+#else
 enum InstructIndex pikaVM_getInstructFromAsm(char* ins_str) {
     enum InstructIndex ins_idx =
         __find_ins_idx_in_ins_set(ins_str, g_PikaVMInsSet.recent->ins_set);
@@ -3665,6 +4277,7 @@ enum InstructIndex pikaVM_getInstructFromAsm(char* ins_str) {
 
     return ins_idx;
 }
+#endif
 
 #else
 
@@ -3675,7 +4288,7 @@ pika_bool pikaVM_registerInstructionSet(VMInstructionSet* ins_set) {
 enum InstructIndex pikaVM_getInstructFromAsm(char* ins_str) {
 #define __INS_COMPARE
 #include "__instruction_table.h"
-    return NON;
+    return PIKA_INS(NON);
 }
 
 const VM_instruct_handler VM_instruct_handler_table[__INSTRUCTION_CNT] = {
@@ -3684,10 +4297,14 @@ const VM_instruct_handler VM_instruct_handler_table[__INSTRUCTION_CNT] = {
 };
 #endif
 
+#ifndef PIKA_SOLANA_SBF
 extern volatile PikaObj* __pikaMain;
+#endif
+
 static enum shellCTRL __obj_shellLineHandler_debug(PikaObj* self,
                                                    char* input_line,
                                                    struct ShellConfig* config) {
+#ifndef PIKA_SOLANA_SBF
     /* continue */
     if (strEqu("c", input_line)) {
         return SHELL_CTRL_EXIT;
@@ -3696,35 +4313,32 @@ static enum shellCTRL __obj_shellLineHandler_debug(PikaObj* self,
     if (strEqu("n", input_line)) {
         return SHELL_CTRL_EXIT;
     }
-    /* launch shell */
-    if (strEqu("sh", input_line)) {
-        /* exit pika shell */
-        pikaScriptShell((PikaObj*)__pikaMain);
-        return SHELL_CTRL_CONTINUE;
-    }
     /* quit */
     if (strEqu("q", input_line)) {
-        obj_setInt(self, "enable", 0);
+        pika_vm_exit();
         return SHELL_CTRL_EXIT;
     }
     /* print */
     if (strIsStartWith(input_line, "p ")) {
         char* path = input_line + 2;
-        Arg* asm_buff = arg_newStr("print(");
-        asm_buff = arg_strAppend(asm_buff, path);
-        asm_buff = arg_strAppend(asm_buff, ")\n");
-        pikaVM_run_ex_cfg cfg = {0};
-        cfg.globals = config->globals;
-        cfg.in_repl = pika_true;
-        pikaVM_run_ex(config->locals, arg_getStr(asm_buff), &cfg);
-        arg_deinit(asm_buff);
+        Arg* res = obj_run(self, path);
+        if (NULL != res) {
+            arg_print(res, pika_true, "\r\n");
+            arg_deinit(res);
+        }
         return SHELL_CTRL_CONTINUE;
     }
-    pikaVM_run_ex_cfg cfg = {0};
-    cfg.globals = config->globals;
+    /* run */
+    pikaVM_run_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.in_repl = pika_true;
     pikaVM_run_ex(config->locals, input_line, &cfg);
     return SHELL_CTRL_CONTINUE;
+#else
+    /* BPF: debug shell not supported */
+    (void)self; (void)input_line; (void)config;
+    return SHELL_CTRL_EXIT;
+#endif
 }
 
 void pika_debug_set_trace(PikaObj* self) {
@@ -3754,7 +4368,7 @@ static int pikaVM_runInstructUnit(PikaObj* self,
     enum InstructIndex instruct = instructUnit_getInstructIndex(ins_unit);
     arg_newReg(ret_reg, PIKA_ARG_BUFF_SIZE);
     Arg* return_arg = &ret_reg;
-    // char invode_deepth1_str[2] = {0};
+
     int32_t pc_next = vm->pc + instructUnit_getSize();
     char* data = PikaVMFrame_getConstWithInstructUnit(vm, ins_unit);
     /* run instruct */
@@ -3772,6 +4386,16 @@ static int pikaVM_runInstructUnit(PikaObj* self,
     pika_assert(NULL != ins->handler);
 
     return_arg = ins->handler(self, vm, data, &ret_reg);
+#elif defined(PIKA_SOLANA_SBF)
+    /* BPF: Use switch dispatch instead of function pointer table */
+    switch (instruct) {
+#define __INS_DISPATCH
+#include "__instruction_table.h"
+        default:
+            pika_assert(0); /* Unsupported instruction */
+            return_arg = NULL;
+            break;
+    }
 #else
     return_arg = VM_instruct_handler_table[instruct](self, vm, data, &ret_reg);
 #endif
@@ -3877,7 +4501,8 @@ VMParameters* pikaVM_runAsm(PikaObj* self, char* pikaAsm) {
 }
 
 static ByteCodeFrame* _cache_bytecodeframe(PikaObj* self) {
-    ByteCodeFrame bytecode_frame_stack = {0};
+    ByteCodeFrame bytecode_frame_stack;
+    pika_platform_memset(&bytecode_frame_stack, 0, sizeof(bytecode_frame_stack));
     ByteCodeFrame* res = NULL;
     if (!obj_isArgExist(self, "@bcn")) {
         /* start form @bc0 */
@@ -3895,7 +4520,7 @@ static ByteCodeFrame* _cache_bytecodeframe(PikaObj* self) {
     return res;
 }
 
-static ByteCodeFrame* _cache_bcf_fn(PikaObj* self, char* py_lines) {
+static inline __attribute__((always_inline)) ByteCodeFrame* _cache_bcf_fn(PikaObj* self, char* py_lines) {
     /* cache 'def' and 'class' to heap */
     if ((NULL == strstr(py_lines, "def ")) &&
         (NULL == strstr(py_lines, "class "))) {
@@ -3907,7 +4532,8 @@ static ByteCodeFrame* _cache_bcf_fn(PikaObj* self, char* py_lines) {
 static char* _get_data_from_bytecode2(uint8_t* bytecode,
                                       enum InstructIndex ins1,
                                       enum InstructIndex ins2) {
-    ByteCodeFrame bf = {0};
+    ByteCodeFrame bf;
+    pika_platform_memset(&bf, 0, sizeof(bf));
     char* res = NULL;
     byteCodeFrame_init(&bf);
     byteCodeFrame_loadByteCode(&bf, bytecode);
@@ -3941,10 +4567,11 @@ static ByteCodeFrame* _cache_bcf_fn_bc(PikaObj* self, uint8_t* bytecode) {
 VMParameters* pikaVM_run_ex(PikaObj* self,
                             char* py_lines,
                             pikaVM_run_ex_cfg* cfg) {
-    ByteCodeFrame bytecode_frame_stack = {0};
+    ByteCodeFrame bytecode_frame_stack;
+    pika_platform_memset(&bytecode_frame_stack, 0, sizeof(ByteCodeFrame));
     ByteCodeFrame* bytecode_frame_p = NULL;
     uint8_t is_use_heap_bytecode = 0;
-    PikaObj* globals = self;
+    PikaObj* globals = NULL;
     if (NULL != cfg->globals) {
         globals = cfg->globals;
     }
@@ -3984,7 +4611,8 @@ __exit:
 VMParameters* pikaVM_runByteCode_ex(PikaObj* self,
                                     uint8_t* bytecode,
                                     pikaVM_runBytecode_ex_cfg* cfg) {
-    ByteCodeFrame bytecode_frame_stack = {0};
+    ByteCodeFrame bytecode_frame_stack;
+    pika_platform_memset(&bytecode_frame_stack, 0, sizeof(bytecode_frame_stack));
     ByteCodeFrame* bytecode_frame_p = NULL;
     uint8_t is_use_heap_bytecode = 1;
     /*
@@ -4018,7 +4646,8 @@ __exit:
 }
 
 VMParameters* pikaVM_runByteCodeFile(PikaObj* self, char* filename) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     Arg* file_arg = arg_loadFile(NULL, filename);
     pika_assert(NULL != file_arg);
     if (NULL == file_arg) {
@@ -4034,7 +4663,8 @@ VMParameters* pikaVM_runByteCodeFile(PikaObj* self, char* filename) {
 }
 
 VMParameters* pikaVM_runSingleFile(PikaObj* self, char* filename) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     Arg* file_arg = arg_loadFile(NULL, filename);
     if (NULL == file_arg) {
         pika_platform_printf("FileNotFoundError: %s\n", filename);
@@ -4043,7 +4673,8 @@ VMParameters* pikaVM_runSingleFile(PikaObj* self, char* filename) {
     char* lines = (char*)arg_getBytes(file_arg);
     lines = strsFilePreProcess(&buffs, lines);
     /* clear the void line */
-    pikaVM_run_ex_cfg cfg = {0};
+    pikaVM_run_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.in_repl = pika_false;
     char* module_name = strsPathGetFileName(&buffs, filename);
     module_name = strsPopToken(&buffs, &module_name, '.');
@@ -4055,7 +4686,8 @@ VMParameters* pikaVM_runSingleFile(PikaObj* self, char* filename) {
 }
 
 VMParameters* pikaVM_run(PikaObj* self, char* py_lines) {
-    pikaVM_run_ex_cfg cfg = {0};
+    pikaVM_run_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(pikaVM_run_ex_cfg));
     cfg.in_repl = pika_false;
     return pikaVM_run_ex(self, py_lines, &cfg);
 }
@@ -4064,7 +4696,8 @@ VMParameters* pikaVM_runByteCode(PikaObj* self, const uint8_t* bytecode) {
     pika_assert(NULL != self);
     PikaVMThread* vm_thread = pikaVMThread_require();
 
-    pikaVM_runBytecode_ex_cfg cfg = {0};
+    pikaVM_runBytecode_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.locals = self;
     cfg.globals = self;
     cfg.name = NULL;
@@ -4088,6 +4721,17 @@ Arg* pikaVM_runByteCodeReturn(PikaObj* self,
     return ret;
 }
 
+#ifdef PIKA_SOLANA_SBF
+Arg* pikaVM_runByteCode_exReturn(PikaVM_RunByteCodeExReturnParams* params) {
+    // Unpack parameters for BPF compatibility
+    PikaObj* self = params->self;
+    VMParameters* locals = params->locals;
+    VMParameters* globals = params->globals;
+    uint8_t* bytecode = params->bytecode;
+    PikaVMThread* vm_thread = params->vm_thread;
+    pika_bool is_const_bytecode = params->is_const_bytecode;
+    char* return_name = params->return_name;
+#else
 Arg* pikaVM_runByteCode_exReturn(PikaObj* self,
                                  VMParameters* locals,
                                  VMParameters* globals,
@@ -4095,7 +4739,9 @@ Arg* pikaVM_runByteCode_exReturn(PikaObj* self,
                                  PikaVMThread* vm_thread,
                                  pika_bool is_const_bytecode,
                                  char* return_name) {
-    pikaVM_runBytecode_ex_cfg cfg = {0};
+#endif
+    pikaVM_runBytecode_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.locals = locals;
     cfg.globals = globals;
     cfg.vm_thread = vm_thread;
@@ -4115,7 +4761,8 @@ Arg* pikaVM_runByteCode_exReturn(PikaObj* self,
 VMParameters* pikaVM_runByteCodeInconstant(PikaObj* self, uint8_t* bytecode) {
     PikaVMThread* vm_thread = pikaVMThread_require();
 
-    pikaVM_runBytecode_ex_cfg cfg = {0};
+    pikaVM_runBytecode_ex_cfg cfg;
+    pika_platform_memset(&cfg, 0, sizeof(cfg));
     cfg.locals = self;
     cfg.globals = self;
     cfg.vm_thread = vm_thread;
@@ -4355,6 +5002,17 @@ static const char* __find_ins_str_in_ins_set(enum InstructIndex op_idx,
     return NULL;
 }
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: Use default instruction set directly */
+static char* instructUnit_getInstructStr(InstructUnit* self) {
+    enum InstructIndex op_idx = instructUnit_getInstructIndex(self);
+    const char* ins_str = __find_ins_str_in_ins_set(op_idx, &VM_default_instruction_set);
+    if (NULL != ins_str) {
+        return (char*)ins_str;
+    }
+    return "NON";
+}
+#else
 static char* instructUnit_getInstructStr(InstructUnit* self) {
     enum InstructIndex op_idx = instructUnit_getInstructIndex(self);
 
@@ -4374,6 +5032,7 @@ static char* instructUnit_getInstructStr(InstructUnit* self) {
     } while (NULL != item->next);
     return "NON";
 }
+#endif
 #else
 static char* instructUnit_getInstructStr(InstructUnit* self) {
 #define __INS_GET_INS_STR
@@ -4479,11 +5138,13 @@ void byteCodeFrame_print(ByteCodeFrame* self) {
                          self->const_pool.size + self->instruct_array.size);
 }
 
+#ifndef PIKA_HOOK_UNUSED_STACK_ARG_OVERRIDE
 PIKA_WEAK void pika_hook_unused_stack_arg(PikaVMFrame* vm, Arg* arg) {
     if (vm->in_repl) {
         arg_print(arg, pika_true, "\r\n");
     }
 }
+#endif
 
 void PikaVMFrame_solveUnusedStack(PikaVMFrame* vm) {
     uint8_t top = stack_getTop(&(vm->stack));
@@ -4650,6 +5311,18 @@ int pikaVMThread_convertExceptionStack(PikaVMThread* vmThread) {
     return 0;
 }
 
+#ifdef PIKA_SOLANA_SBF
+static VMParameters* __pikaVM_runByteCodeFrameWithState(
+    __PikaVM_RunByteCodeFrameStateParams* params) {
+    // Unpack parameters for BPF compatibility
+    PikaObj* self = params->self;
+    VMParameters* locals = params->locals;
+    VMParameters* globals = params->globals;
+    ByteCodeFrame* bytecode_frame = params->bytecode_frame;
+    uint16_t pc = params->pc;
+    PikaVMThread* vm_thread = params->vm_thread;
+    pika_bool in_repl = params->in_repl;
+#else
 static VMParameters* __pikaVM_runByteCodeFrameWithState(
     PikaObj* self,
     VMParameters* locals,
@@ -4658,10 +5331,19 @@ static VMParameters* __pikaVM_runByteCodeFrameWithState(
     uint16_t pc,
     PikaVMThread* vm_thread,
     pika_bool in_repl) {
+#endif
     pika_assert(NULL != vm_thread);
     int size = bytecode_frame->instruct_array.size;
     /* locals is the local scope */
 
+#ifdef PIKA_SOLANA_SBF
+    /* BPF: No global VM counter needed */
+    pika_vmSignal_setCtrlClear();
+    PikaVMFrame* vm =
+        PikaVMFrame_create(locals, globals, bytecode_frame, pc, vm_thread);
+    vm->in_repl = in_repl;
+    vm_thread->invoke_deepth++;
+#else
     if (g_PikaVMState.vm_cnt == 0) {
         pika_vmSignal_setCtrlClear();
     }
@@ -4670,6 +5352,7 @@ static VMParameters* __pikaVM_runByteCodeFrameWithState(
     vm->in_repl = in_repl;
     vm_thread->invoke_deepth++;
     g_PikaVMState.vm_cnt++;
+#endif
     while (vm->pc < size) {
         if (vm->pc == VM_PC_EXIT) {
             break;
@@ -4735,9 +5418,19 @@ static VMParameters* __pikaVM_runByteCodeFrameWithState(
     uint8_t vm_thread_deepth = vm_thread->invoke_deepth;
     uint8_t vm_thread_is_sub_thread = vm_thread->is_sub_thread;
     if (vm_thread_deepth == 0) {
+#ifdef PIKA_SOLANA_SBF
+        /* BPF: Free the heap-allocated thread context */
+        pikaFree(vm_thread, sizeof(PikaVMThread));
+#else
         pikaVMThread_delete();
+        g_PikaVMState.vm_cnt--;
+#endif
     }
-    g_PikaVMState.vm_cnt--;
+#ifndef PIKA_SOLANA_SBF
+    else {
+        g_PikaVMState.vm_cnt--;
+    }
+#endif
     if ((vm_thread_deepth == 0) && (!vm_thread_is_sub_thread)) {
         if (VMSignal_getCtrl() == VM_SIGNAL_CTRL_EXIT) {
             // wait other sub thread to exit
@@ -4748,9 +5441,10 @@ static VMParameters* __pikaVM_runByteCodeFrameWithState(
             }
         }
     }
-    return result;
+    return locals;
 }
 
+#if PIKA_DEBUG_BREAK_POINT_MAX > 0
 pika_bool pika_debug_check_break(char* module_name, int pc_break) {
     Hash h = hash_time33(module_name);
     for (int i = 0; i < g_PikaVMState.break_point_cnt; i++) {
@@ -4808,6 +5502,28 @@ PIKA_RES pika_debug_reset_break(char* module_name, int pc_break) {
     }
     return PIKA_RES_ERR_RUNTIME_ERROR;
 }
+#else
+/* Stubs for when breakpoints are disabled */
+pika_bool pika_debug_check_break(char* module_name, int pc_break) {
+    (void)module_name; (void)pc_break;
+    return pika_false;
+}
+
+pika_bool pika_debug_check_break_hash(Hash module_hash, int pc_break) {
+    (void)module_hash; (void)pc_break;
+    return pika_false;
+}
+
+PIKA_RES pika_debug_set_break(char* module_name, int pc_break) {
+    (void)module_name; (void)pc_break;
+    return PIKA_RES_OK;
+}
+
+PIKA_RES pika_debug_reset_break(char* module_name, int pc_break) {
+    (void)module_name; (void)pc_break;
+    return PIKA_RES_OK;
+}
+#endif
 
 static VMParameters* _pikaVM_runByteCodeFrameWithState(
     PikaObj* self,
@@ -4816,11 +5532,27 @@ static VMParameters* _pikaVM_runByteCodeFrameWithState(
     ByteCodeFrame* bytecode_frame,
     uint16_t pc,
     PikaVMThread* vm_thread) {
+#ifdef PIKA_SOLANA_SBF
+    return __pikaVM_runByteCodeFrameWithState(
+        &(__PikaVM_RunByteCodeFrameStateParams){
+            .self = self,
+            .locals = locals,
+            .globals = globals,
+            .bytecode_frame = bytecode_frame,
+            .pc = pc,
+            .vm_thread = vm_thread,
+            .in_repl = pika_false
+        });
+#else
     return __pikaVM_runByteCodeFrameWithState(
         self, locals, globals, bytecode_frame, pc, vm_thread, pika_false);
+#endif
 }
 
+/* BPF doesn't allow writable global state - disable for Solana */
+#ifndef PIKA_SOLANA_SBF
 static PikaVMThread* g_pika_vm_state_head = NULL;
+#endif
 
 int pikaVMThread_init(PikaVMThread* vmThread, uint64_t thread_id) {
     vmThread->thread_id = thread_id;
@@ -4853,6 +5585,26 @@ void pikaVMThread_destroy(PikaVMThread* state) {
     }
 }
 
+#ifdef PIKA_SOLANA_SBF
+/* BPF: Single-threaded - allocate thread state on heap per VM invocation */
+PikaVMThread* pikaVMThread_find_node_by_thread_id(uint64_t thread_id) {
+    (void)thread_id;
+    return NULL;  /* Not used in single-threaded BPF */
+}
+
+PikaVMThread* pikaVMThread_require(void) {
+    /* Allocate VM thread context on heap */
+    PikaVMThread* thread = pikaMalloc(sizeof(PikaVMThread));
+    if (thread != NULL) {
+        pikaVMThread_init(thread, 0);
+    }
+    return thread;
+}
+
+void pikaVMThread_delete(void) {
+    /* Thread will be freed when VM frame is destroyed */
+}
+#else
 PikaVMThread* pikaVMThread_find_node_by_thread_id(uint64_t thread_id) {
     PikaVMThread* current = g_pika_vm_state_head;
     while (current != NULL) {
@@ -4902,14 +5654,28 @@ void pikaVMThread_delete(void) {
         current = current->next;
     }
 }
+#endif
 
 VMParameters* _pikaVM_runByteCodeFrame(PikaObj* self,
                                        ByteCodeFrame* byteCode_frame,
                                        pika_bool in_repl) {
     PikaVMThread* vm_thread = pikaVMThread_require();
 
+#ifdef PIKA_SOLANA_SBF
+    return __pikaVM_runByteCodeFrameWithState(
+        &(__PikaVM_RunByteCodeFrameStateParams){
+            .self = self,
+            .locals = self,
+            .globals = self,
+            .bytecode_frame = byteCode_frame,
+            .pc = 0,
+            .vm_thread = vm_thread,
+            .in_repl = in_repl
+        });
+#else
     return __pikaVM_runByteCodeFrameWithState(self, self, self, byteCode_frame,
                                               0, vm_thread, in_repl);
+#endif
 }
 
 VMParameters* _pikaVM_runByteCodeFrameGlobals(PikaObj* self,
@@ -4918,8 +5684,21 @@ VMParameters* _pikaVM_runByteCodeFrameGlobals(PikaObj* self,
                                               pika_bool in_repl) {
     PikaVMThread* vm_thread = pikaVMThread_require();
 
+#ifdef PIKA_SOLANA_SBF
+    return __pikaVM_runByteCodeFrameWithState(
+        &(__PikaVM_RunByteCodeFrameStateParams){
+            .self = self,
+            .locals = self,
+            .globals = globals,
+            .bytecode_frame = byteCode_frame,
+            .pc = 0,
+            .vm_thread = vm_thread,
+            .in_repl = in_repl
+        });
+#else
     return __pikaVM_runByteCodeFrameWithState(
         self, self, globals, byteCode_frame, 0, vm_thread, in_repl);
+#endif
 }
 
 VMParameters* pikaVM_runByteCodeFrame(PikaObj* self,
@@ -4946,7 +5725,7 @@ void constPool_printAsArray(ConstPool* self) {
         }
         char* data_each = constPool_getNow(self);
         /* todo start */
-        size_t len = strlen(data_each);
+        uint64_t len = strlen(data_each);
         for (uint32_t i = 0; i < len + 1; i++) {
             pika_platform_printf("0x%02x, ", *(data_each + (uintptr_t)i));
             g_i++;
@@ -4972,7 +5751,8 @@ void byteCodeFrame_printAsArray(ByteCodeFrame* self) {
 }
 
 PikaObj* pikaVM_runFile(PikaObj* self, char* file_name) {
-    Args buffs = {0};
+    Args buffs;
+    pika_platform_memset(&buffs, 0, sizeof(buffs));
     char* module_name = strsPathGetFileName(&buffs, file_name);
     strPopLastToken(module_name, '.');
     char* pwd = strsPathGetFolder(&buffs, file_name);

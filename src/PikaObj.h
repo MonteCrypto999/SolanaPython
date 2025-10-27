@@ -25,7 +25,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-#include <stdint.h>
+#include "stdint.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -371,7 +371,10 @@ Arg* obj_getMethodArgWithFullPath_noalloc(PikaObj* obj,
 
 void obj_setErrorCode(PikaObj* self, int32_t errCode);
 
+// BPF-PATCHED: Defined as macro in pika_varargs_override.h for PIKA_SOLANA_SBF
+#ifndef PIKA_SOLANA_SBF
 void obj_setSysOut(PikaObj* self, char* fmt, ...);
+#endif
 
 uint8_t obj_getAnyArg(PikaObj* self,
                       char* targetArgName,
@@ -516,6 +519,8 @@ Method obj_getNativeMethod(PikaObj* self, char* method_name);
 PIKA_RES obj_runNativeMethod(PikaObj* self, char* method_name, Args* args);
 Arg* obj_newObjInPackage(NewFun newObjFun);
 
+/* Variadic constructors - not available on SBF (no varargs support) */
+#ifndef PIKA_SOLANA_SBF
 /* A helper function to create a new tuple PikaObj and append the given
  * arguments (of type Arg*) to it. */
 PikaObj* _pika_tuple_new(int num_args, ...);
@@ -542,6 +547,7 @@ PikaObj* _pika_dict_new(int num_args, ...);
 #define New_PikaDictFromVarArgs(...)                                       \
     _pika_dict_new(sizeof((Arg*[]){__VA_ARGS__, NULL}) / sizeof(Arg*) - 1, \
                    __VA_ARGS__)
+#endif
 
 PikaObj* newNormalObj(NewFun newObjFun);
 Arg* arg_setRef(Arg* self, char* name, PikaObj* obj);
@@ -885,7 +891,11 @@ PIKA_RES _transeBool(Arg* arg, pika_bool* res);
 
 /* list api */
 PikaList* New_PikaList(void);
+#ifdef PIKA_SOLANA_SBF
+#define New_PikaListFrom(...) New_PikaList()
+#else
 #define New_PikaListFrom New_PikaListFromVarArgs
+#endif
 PIKA_RES pikaList_append(PikaList* self, Arg* arg);
 PIKA_RES pikaList_set(PikaList* self, int index, Arg* arg);
 void pikaList_init(PikaObj* self);
