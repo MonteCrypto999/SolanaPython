@@ -89,3 +89,11 @@ solana/tools/pika_compile
 *.bc
 *.o
 *.dSYM/
+
+# Solana test artifacts
+test-ledger/
+solana-test-validator.log
+solana/build/
+solana/examples/bytecode/
+solana/tools/pika_compile
+solana/tools/*.dSYM

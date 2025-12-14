@@ -307,9 +307,9 @@ f = open('/sol/4S8bn7cpNzP15RZejwDjgDN9P5TkAPBGkzH5AgwD7kSG', 'r')
 ```
 
 **Opening modes:**
-- `'r'` - Read-only
-- `'w'` - Write (account must be writable)
-- `'rw'` - Read-write
+- `'r'` - Read-only (works with any account, including non-writable)
+- `'w'` - Write (account must be marked writable in transaction)
+- `'rw'` - Read-write (account must be marked writable)
 
 ```python
 # Read account data
@@ -692,7 +692,7 @@ const instruction = new TransactionInstruction({
 - **32-bit floats** - Single precision floating point
 - **CU limits** - Complex operations may exceed compute budget
 - **256KB heap** - Maximum heap size for allocations
-- **Account ownership** - VFS only works with program-owned accounts
+- **Account write access** - VFS write requires accounts marked writable in transaction
 
 ## Files
 

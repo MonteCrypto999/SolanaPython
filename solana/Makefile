@@ -3,12 +3,13 @@
 # Usage:
 #   make              - Build pika_python.so
 #   make compiler     - Build native bytecode compiler
+#   make examples     - Compile Python examples to bytecode
 #   make deploy       - Build and deploy to local validator
 #   make test         - Run tests
 #   make clean        - Remove build artifacts
 #   make help         - Show this help
 
-.PHONY: all build compiler deploy test clean help keypair
+.PHONY: all build compiler deploy test clean help keypair examples
 
 # Directories
 ROOT_DIR := $(shell pwd)
@@ -17,6 +18,8 @@ PORT_DIR := $(PIKA_ROOT)/port/solana_sbf
 SDK_DIR := $(PORT_DIR)/solana_sdk
 BUILD_DIR := $(ROOT_DIR)/build
 TOOLS_DIR := $(ROOT_DIR)/tools
+EXAMPLES_DIR := $(ROOT_DIR)/examples
+BYTECODE_DIR := $(EXAMPLES_DIR)/bytecode
 
 # Output
 PROGRAM := pika_python
@@ -186,11 +189,31 @@ test: deploy
 	@echo "Running tests..."
 	@cd tests && ./run_tests.sh
 
+# Build bytecode examples
+examples: compiler
+	@echo ""
+	@echo "========================================"
+	@echo "Compiling Python Examples to Bytecode"
+	@echo "========================================"
+	@mkdir -p $(BYTECODE_DIR)
+	@for pyfile in $(EXAMPLES_DIR)/*.py; do \
+		if [ -f "$$pyfile" ]; then \
+			name=$$(basename "$$pyfile" .py); \
+			echo "  Compiling $$name.py..."; \
+			$(COMPILER) -f "$$pyfile" -o "$(BYTECODE_DIR)/$$name.bin"; \
+		fi; \
+	done
+	@echo ""
+	@echo "Bytecode files:"
+	@ls -lh $(BYTECODE_DIR)/*.bin 2>/dev/null || echo "  (none)"
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
 	@rm -f $(COMPILER)
+	@rm -rf $(BYTECODE_DIR)
+	@rm -rf $(TOOLS_DIR)/*.dSYM
 	@echo "Done"
 
 # Help
@@ -200,6 +223,7 @@ help:
 	@echo "Targets:"
 	@echo "  make              - Build pika_python.so (SBF program)"
 	@echo "  make compiler     - Build native bytecode compiler"
+	@echo "  make examples     - Compile Python examples to bytecode"
 	@echo "  make deploy       - Build and deploy to local validator"
 	@echo "  make test         - Deploy and run tests"
 	@echo "  make clean        - Remove build artifacts"
@@ -213,3 +237,4 @@ help:
 	@echo "Output:"
 	@echo "  $(OUTPUT)"
 	@echo "  $(COMPILER)"
+	@echo "  $(BYTECODE_DIR)/*.bin"
