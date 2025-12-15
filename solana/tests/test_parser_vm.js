@@ -53,7 +53,7 @@ const TEST_CASES = [
     { name: 'addition', code: `1+2`, expected: '3' },
     { name: 'subtraction', code: `10-3`, expected: '7' },
     { name: 'multiplication', code: `6*7`, expected: '42' },
-    { name: 'division', code: `20/4`, expected: '5' },
+    { name: 'division', code: `20/4`, expected: '5.0' },
     { name: 'integer division', code: `20//4`, expected: '5' },
     { name: 'modulo', code: `17%5`, expected: '2' },
     { name: 'complex expression', code: `1+2+3`, expected: '6' },
@@ -62,8 +62,8 @@ const TEST_CASES = [
 
     // === Floating Point ===
     { name: 'float literal', code: `1.5`, expected: '1.5' },
-    { name: 'float add', code: `1.5+2.5`, expected: '4' },
-    { name: 'float multiply', code: `2.5*4`, expected: '10' },
+    { name: 'float add', code: `1.5+2.5`, expected: '4.0' },
+    { name: 'float multiply', code: `2.5*4`, expected: '10.0' },
     { name: 'float divide', code: `10/4`, expected: '2.5' },
     { name: 'negative float', code: `-1.25`, expected: '-1.25' },
 
@@ -126,15 +126,15 @@ const TEST_CASES = [
         checkLogs: 'calculating'
     },
 
-    // === Solana Builtins ===
+    // === Solana Module ===
     {
         name: 'time returns unix timestamp',
-        code: `time() > 1700000000`,
+        code: `import time\ntime.time() > 1700000000`,
         expected: 'True'
     },
     {
         name: 'slot returns positive',
-        code: `slot() > 0`,
+        code: `import solana\nsolana.slot() > 0`,
         expected: 'True'
     },
 

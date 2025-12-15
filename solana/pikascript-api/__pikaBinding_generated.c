@@ -15,6 +15,8 @@
 #include "PikaMain.h"
 #include "PikaStdLib_SysObj.h"
 #include "_math.h"
+#include "_time.h"
+#include "_solana.h"
 
 #include "TinyObj.h"
 
@@ -29,6 +31,10 @@ PikaObj *New_PikaMain(Args *args){
 #ifndef PIKA_MODULE__MATH_DISABLE
     obj_newObj(self, "_math", "_math", New__math);
 #endif
+    /* Register time module - use "time" as alias for user convenience */
+    obj_newObj(self, "time", "time", New__time);
+    /* Register solana module */
+    obj_newObj(self, "solana", "solana", New__solana);
     obj_setClass(self, PikaMain);
     return self;
 }

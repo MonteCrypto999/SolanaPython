@@ -49,9 +49,76 @@ void _pika_platform_printf_variadic(const char* fmt,
 #include "../src/PikaVM.c"
 #include "../port/solana_sbf/solana_vfs.c"
 
+/* Helper: Get bytes from Arg (handles both raw bytes and bytearray objects)
+ *
+ * Note: arg_getBytes returns pointer to size_t header + data
+ *       arg_getBytesSize returns just the data size (excluding header)
+ *       Both arg_getBytes and obj_getBytes include size_t header - must skip it
+ */
+static int get_bytes_from_arg(Arg* arg, uint8_t** out_ptr, size_t* out_len) {
+    if (arg == NULL) return 0;
+
+    ArgType type = arg_getType(arg);
+
+    /* Handle direct bytes (ARG_TYPE_BYTES) - skip size_t header */
+    if (type == ARG_TYPE_BYTES) {
+        uint8_t* ptr = arg_getBytes(arg);
+        size_t len = arg_getBytesSize(arg);
+        if (ptr != NULL && len > 0) {
+            /* Skip the size_t header that arg_getBytes includes */
+            *out_ptr = ptr + sizeof(size_t);
+            *out_len = len;
+            return 1;
+        }
+    }
+
+    /* Handle object types (bytearray objects store bytes in "raw" attribute) */
+    if (type == ARG_TYPE_OBJECT) {
+        PikaObj* obj = arg_getPtr(arg);
+        if (obj != NULL) {
+            uint8_t* ptr = obj_getBytes(obj, "raw");
+            size_t len = obj_getBytesSize(obj, "raw");
+            if (ptr != NULL && len > 0) {
+                /* Skip the size_t header that obj_getBytes includes */
+                *out_ptr = ptr + sizeof(size_t);
+                *out_len = len;
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 // Math module (SBF-specific version using float functions due to buggy libm doubles)
 #include "pikascript-api/_math.h"
 #include "pikascript-api/_math_sbf.c"
+
+// Time module
+#include "pikascript-api/_time.h"
+#include "pikascript-api/_time_sbf.c"
+
+// Solana module (slot, epoch, cpi, hashing, PDAs)
+#include "pikascript-api/_solana.h"
+#include "pikascript-api/_solana_sbf.c"
+
+// Base64 module
+#include "pikascript-api/_base64.h"
+#include "pikascript-api/_base64_sbf.c"
+
+// JSON module
+#include "pikascript-api/_json.h"
+#include "pikascript-api/_json_sbf.c"
+
+// Struct module (binary packing)
+#include "pikascript-api/_struct.h"
+#include "pikascript-api/_struct_sbf.c"
+
+// Base58 module (Solana-style base58 encoding)
+#include "pikascript-api/_base58.h"
+#include "pikascript-api/_base58_sbf.c"
+
+// Module bindings
 #include "pikascript-api/__pikaBinding.c"
 
 // Execution modes
@@ -196,8 +263,8 @@ static uint64_t execute_script(const uint8_t* data, uint64_t len) {
 
     pika_platform_free(bytecode_buf);
 
-    // Create root object
-    PikaObj* root = New_PikaObj(NULL);
+    // Create root object with all modules (math, time, solana, etc.)
+    PikaObj* root = New_PikaMain(NULL);
     if (!root) {
         sol_log("Error: Failed to create root object");
         byteCodeFrame_deinit(&bcf);
@@ -352,8 +419,8 @@ static uint64_t execute_bytecode(const uint8_t* data, uint64_t len) {
     bcf.const_pool.size = const_size;
     bcf.const_pool.content_start = (char*)const_data;
 
-    // Create root object
-    PikaObj* root = New_PikaObj(NULL);
+    // Create root object with all modules (math, time, solana)
+    PikaObj* root = New_PikaMain(NULL);
     if (!root) {
         sol_log("Error: Failed to create root object");
         pika_platform_free(bytecode);
@@ -470,6 +537,12 @@ static void init_cpi_context(SolAccountInfo* accounts, uint64_t num_accounts, co
 /* Convert SolAccountInfo array to SolVfsAccountInfo array for VFS init */
 static void init_vfs_from_accounts(SolAccountInfo* accounts, uint64_t num_accounts) {
     uint64_t count = num_accounts < MAX_ACCOUNTS ? num_accounts : MAX_ACCOUNTS;
+
+    /* No accounts - init VFS with empty table */
+    if (count == 0) {
+        sol_vfs_init((SolVfsAccountInfo*)0, 0);
+        return;
+    }
 
     /* Allocate on heap since Solana doesn't allow .bss section */
     SolVfsAccountInfo* vfs_accounts = (SolVfsAccountInfo*)pika_platform_malloc(

@@ -107,7 +107,7 @@ cd tests
 ```
 
 **Test Suites:**
-- `test_vm_only.js` - 58 tests using native compiler + on-chain VM (~50K CU avg)
+- `test_vm_only.js` - 91 tests using native compiler + on-chain VM (~49K CU avg)
 - `test_parser_vm.js` - 35 tests using on-chain parser + VM (~584K CU avg)
 - `test_import_module.js` - Tests for exec() and import sol_N
 
@@ -173,6 +173,17 @@ def factorial(n):
     return n * factorial(n - 1)
 ```
 
+### Exception Handling
+
+```python
+try:
+    x = 1 / 0
+except:
+    print('caught error')
+```
+
+Note: Only basic `try`/`except` is supported. No `finally`, `raise`, or specific exception types.
+
 ## Builtin Functions
 
 ### Standard Python Builtins
@@ -198,11 +209,9 @@ def factorial(n):
 
 | Function | Description | Example |
 |----------|-------------|---------|
-| `time()` | Solana clock unix timestamp | `t = time()` |
-| `slot()` | Current Solana slot number | `s = slot()` |
-| `epoch()` | Current Solana epoch number | `e = epoch()` |
 | `open(path, mode)` | Open account as file (VFS) | `f = open('/sol/0', 'r')` |
-| `cpi(program, accounts, data)` | Cross-Program Invocation | `cpi(0, [1, 2], bytearray([1]))` |
+
+Note: Time functions are in the `time` module. Solana-specific functions (`slot()`, `epoch()`, `cpi()`) are in the `solana` module.
 
 ### bytearray
 
@@ -223,12 +232,35 @@ b = bytearray([10, 20, 30])
 print(b[1])    # 20
 ```
 
+## Modules
+
+PikaPython supports three importable modules:
+
+| Module | Description | Import |
+|--------|-------------|--------|
+| `math` | Mathematical functions (trig, log, sqrt, etc.) | `import math` |
+| `time` | Time functions using Solana clock sysvar | `import time` |
+| `solana` | Solana-specific functions (slot, epoch, CPI) | `import solana` |
+
+```python
+import math
+import time
+import solana
+
+# Use module functions
+print(math.sqrt(16))      # 4.0
+print(time.time())        # Unix timestamp
+print(solana.slot())      # Current slot
+```
+
 ## Math Module
 
 The `math` module provides mathematical functions using 32-bit floats.
 
 ```python
 import math
+# or with alias
+import math as m
 ```
 
 ### Constants
@@ -287,6 +319,117 @@ print(math.cos(angle))  # 0.707...
 x = 1.0
 result = math.sqrt(math.sin(x)**2 + math.cos(x)**2)
 print(result)  # 1.0
+```
+
+## Time Module
+
+The `time` module provides time functions using Solana's clock sysvar.
+
+```python
+import time
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `time.time()` | Unix timestamp from clock sysvar | `t = time.time()` |
+| `time.ctime(secs)` | Format timestamp as string | `time.ctime(t)` -> "Sun Dec 14 23:45:25 2025" |
+| `time.asctime()` | Current time as formatted string | `time.asctime()` |
+| `time.gmtime(secs)` | Convert to struct_time (UTC) | `tm = time.gmtime(t)` |
+| `time.localtime(secs)` | Convert to struct_time (same as gmtime on Solana) | `tm = time.localtime(t)` |
+| `time.mktime(t)` | Convert struct_time tuple to timestamp | `time.mktime((2024, 1, 15, 12, 30, 0, 0, 0, 0))` |
+
+### Example
+
+```python
+import time
+
+# Get current unix timestamp
+t = time.time()
+print(t)  # 1765755911
+
+# Format as readable string
+print(time.ctime(t))  # "Sun Dec 14 23:45:25 2025"
+
+# Get current time string
+print(time.asctime())  # Same as ctime(time())
+```
+
+### mktime Usage
+
+The `mktime()` function accepts either a 9-element tuple (Python standard) or a 6-element list:
+
+```python
+import time
+
+# Standard 9-element tuple (year, mon, day, hour, min, sec, wday, yday, isdst)
+t = (2023, 11, 14, 22, 13, 20, 0, 0, 0)
+timestamp = time.mktime(t)
+
+# Or simplified 6-element list (only first 6 are used)
+t = [2023, 11, 14, 22, 13, 20]
+timestamp = time.mktime(t)
+```
+
+## Solana Module
+
+The `solana` module provides Solana-specific functions.
+
+```python
+import solana
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `solana.slot()` | Current slot number | `s = solana.slot()` |
+| `solana.epoch()` | Current epoch number | `e = solana.epoch()` |
+| `solana.cpi(program_idx, accounts, data)` | Cross-Program Invocation | `solana.cpi(0, [1, 2], b'\\x01')` |
+
+### Example
+
+```python
+import solana
+
+# Get current slot
+print(solana.slot())  # 3358
+
+# Get current epoch
+print(solana.epoch())  # 0
+
+# Cross-Program Invocation
+# program_idx: index of target program in transaction accounts
+# accounts: list of account indices to pass
+# data: instruction data as bytes
+result = solana.cpi(0, [1, 2], bytearray([1, 2, 3]))
+print(result)  # 0 = success
+```
+
+### CPI (Cross-Program Invocation)
+
+Call other Solana programs from Python:
+
+```python
+import solana
+
+# Transfer SOL via System Program
+# Account 0 = System Program
+# Account 1 = Source (signer)
+# Account 2 = Destination
+# Data = Transfer instruction (type 2) + amount (8 bytes, little-endian)
+
+amount = 1000000  # 0.001 SOL in lamports
+data = bytearray(12)
+data[0] = 2  # Transfer instruction
+# Write amount as little-endian u64
+for i in range(8):
+    data[4 + i] = (amount >> (i * 8)) & 0xff
+
+result = solana.cpi(0, [1, 2], data)
+if result == 0:
+    print("Transfer successful!")
 ```
 
 ## Account Storage (VFS)
@@ -686,9 +829,9 @@ const instruction = new TransactionInstruction({
 
 ## Limitations
 
-- **Limited imports** - Only `import sol_N` for account-stored modules
+- **Limited imports** - Only `import math` (built-in) and `import sol_N` (account modules); `import X as Y` and `from X import Y` supported
 - **No networking** - Network operations not supported
-- **Limited exceptions** - Basic error handling only
+- **Basic exceptions** - `try`/`except` supported, no `finally` or exception types
 - **32-bit floats** - Single precision floating point
 - **CU limits** - Complex operations may exceed compute budget
 - **256KB heap** - Maximum heap size for allocations

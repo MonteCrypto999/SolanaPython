@@ -1,9 +1,15 @@
 /*
- * Math module bindings for Solana SBF
+ * Module bindings for Solana SBF
  * Uses runtime method registration (required for SBF - const array relocations don't work)
  */
 
 #include "_math.h"
+#include "_time.h"
+#include "_solana.h"
+#include "_base64.h"
+#include "_json.h"
+#include "_struct.h"
+#include "_base58.h"
 #include "../../src/TinyObj.h"
 
 /* Method wrappers */
@@ -164,6 +170,26 @@ PikaObj *New__math(Args *args) {
     class_defineMethod(self, "fmod", "x,y", (Method)_math_fmodMethod);
     class_defineMethod(self, "trunc", "x", (Method)_math_truncMethod);
     class_defineMethod(self, "remainder", "x,y", (Method)_math_remainderMethod);
+
+    return self;
+}
+
+/*
+ * PikaMain - Root object constructor
+ * Creates root object with all modules registered
+ * Uses runtime registration (required for SBF - const array relocations don't work)
+ */
+PikaObj *New_PikaMain(Args *args) {
+    PikaObj *self = New_TinyObj(args);
+
+    /* Register modules */
+    obj_newObj(self, "math", "math", New__math);
+    obj_newObj(self, "time", "time", New__time);
+    obj_newObj(self, "solana", "solana", New__solana);
+    obj_newObj(self, "base64", "base64", New__base64);
+    obj_newObj(self, "json", "json", New__json);
+    obj_newObj(self, "struct", "struct", New__struct);
+    obj_newObj(self, "base58", "base58", New__base58);
 
     return self;
 }

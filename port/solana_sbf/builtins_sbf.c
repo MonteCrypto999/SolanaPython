@@ -25,7 +25,8 @@ typedef struct {
 } SolClock;
 
 // Solana syscall to get clock sysvar (returns 0 on success)
-extern uint64_t sol_get_clock_sysvar(SolClock* clock);
+// Using void* for compatibility with other modules that may have their own SolClock typedef
+extern uint64_t sol_get_clock_sysvar(void* clock);
 #endif
 
 // ============================================================================
@@ -1164,13 +1165,28 @@ void _sbf_builtins_cpi(PikaObj* self, Args* args) {
     SolAccountMeta metas[16];
 
     for (int i = 0; i < numCpiAccounts; i++) {
-        int idx = pikaList_getInt(accountsList, i);
-        SolAccountInfo* acct = &accounts[idx];
+        Arg* elem = pikaList_getArg(accountsList, i);
+        int idx = 0;
+        int is_writable = 0;
+        int is_signer = 0;
 
-        // Point to original pubkey, inherit flags
+        if (elem != NULL && arg_isObject(elem)) {
+            // Element is a tuple: (account_idx, is_writable, is_signer)
+            PikaObj* tuple = arg_getPtr(elem);
+            idx = (int)pikaList_getInt(tuple, 0);
+            is_writable = (int)pikaList_getInt(tuple, 1);
+            is_signer = (int)pikaList_getInt(tuple, 2);
+        } else {
+            // Element is just an integer index - inherit flags from account
+            idx = (int)pikaList_getInt(accountsList, i);
+            is_writable = accounts[idx].is_writable;
+            is_signer = accounts[idx].is_signer;
+        }
+
+        SolAccountInfo* acct = &accounts[idx];
         metas[i].pubkey = acct->key;
-        metas[i].is_writable = acct->is_writable;
-        metas[i].is_signer = acct->is_signer;
+        metas[i].is_writable = is_writable;
+        metas[i].is_signer = is_signer;
     }
 
     SolInstruction instruction = {
@@ -1227,9 +1243,6 @@ PikaObj* New_builtins(Args* args) {
     // Add builtin methods
     class_defineMethod(self, "print", "*val,**ops", (Method)_sbf_builtins_print);
     class_defineMethod(self, "range", "*ax", (Method)_sbf_builtins_range);
-    class_defineMethod(self, "time", "", (Method)_sbf_builtins_time);
-    class_defineMethod(self, "slot", "", (Method)_sbf_builtins_slot);
-    class_defineMethod(self, "epoch", "", (Method)_sbf_builtins_epoch);
     class_defineMethod(self, "iter", "arg", (Method)_sbf_builtins_iter);
     class_defineMethod(self, "abs", "val", (Method)_sbf_builtins_abs);
     class_defineMethod(self, "bool", "val", (Method)_sbf_builtins_bool);

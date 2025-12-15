@@ -266,7 +266,6 @@ void sol_vfs_init(SolVfsAccountInfo* accounts, uint64_t num_accounts) {
         ft[i].is_writable = 0;
     }
 
-    sol_log("VFS initialized");
 }
 
 int sol_vfs_open(const char* pubkey_b58, const char* mode) {

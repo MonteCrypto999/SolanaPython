@@ -5,11 +5,14 @@
 #   make compiler     - Build native bytecode compiler
 #   make examples     - Compile Python examples to bytecode
 #   make deploy       - Build and deploy to local validator
-#   make test         - Run tests
+#   make test         - Run core tests (VM + parser)
+#   make test-vm      - Run VM-only tests (bytecode)
+#   make test-parser  - Run parser+VM tests (source)
+#   make test-all     - Run full test suite
 #   make clean        - Remove build artifacts
 #   make help         - Show this help
 
-.PHONY: all build compiler deploy test clean help keypair examples
+.PHONY: all build compiler deploy test test-vm test-parser test-all clean help keypair examples
 
 # Directories
 ROOT_DIR := $(shell pwd)
@@ -66,12 +69,12 @@ PIKA_DEFINES := \
 	-DPIKA_STD_DEVICE_UNSUPPORTED=1 \
 	-DPIKA_FILEIO_ENABLE=0 \
 	-DPIKA_FLOAT_TYPE_DOUBLE=0 \
-	-DPIKA_STACK_BUFF_SIZE=256 \
+	-DPIKA_STACK_BUFF_SIZE=512 \
 	-DPIKA_ARG_CACHE_ENABLE=0 \
 	-DPIKA_SYNTAX_SLICE_ENABLE=1 \
 	-DPIKA_SYNTAX_FORMAT_ENABLE=0 \
-	-DPIKA_SYNTAX_IMPORT_EX_ENABLE=0 \
-	-DPIKA_SYNTAX_EXCEPTION_ENABLE=0 \
+	-DPIKA_SYNTAX_IMPORT_EX_ENABLE=1 \
+	-DPIKA_SYNTAX_EXCEPTION_ENABLE=1 \
 	-DPIKA_EVENT_ENABLE=0 \
 	-DPIKA_GC_MARK_SWEEP_ENABLE=0 \
 	-DPIKA_DEBUG_BREAK_POINT_MAX=0 \
@@ -115,19 +118,6 @@ LDFLAGS := \
 	-lc \
 	-lm
 
-# Native compiler flags (for pika_compile tool)
-NATIVE_CC := gcc
-NATIVE_CFLAGS := \
-	-O2 \
-	-std=c99 \
-	-fno-strict-aliasing \
-	-I$(PORT_DIR) \
-	-I$(PIKA_ROOT)/src \
-	$(PIKA_DEFINES) \
-	-DPIKA_LINUX_COMPATIBLE=1 \
-	-Wno-int-conversion \
-	-Wno-incompatible-pointer-types
-
 # Main source (unity build - includes all other sources)
 MAIN_SRC := $(ROOT_DIR)/pika_python.c
 COMPILER_SRC := $(TOOLS_DIR)/pika_compile.c
@@ -158,17 +148,7 @@ $(OUTPUT): $(BUILD_DIR) $(MAIN_SRC)
 compiler: $(COMPILER)
 
 $(COMPILER): $(COMPILER_SRC)
-	@echo "========================================"
-	@echo "Building PikaPython Native Compiler"
-	@echo "========================================"
-	@echo "  Compiling..."
-	@$(NATIVE_CC) $(NATIVE_CFLAGS) $(COMPILER_SRC) -o $(COMPILER)
-	@echo "  Done: $(COMPILER)"
-	@echo ""
-	@echo "Usage:"
-	@echo "  $(COMPILER) \"print('Hello')\"         # Output hex"
-	@echo "  $(COMPILER) -o out.bin \"print(1+2)\"  # Write binary"
-	@echo "  $(COMPILER) -f script.py              # Compile file"
+	@$(TOOLS_DIR)/build_compiler.sh
 
 # Generate keypair if missing
 keypair:
@@ -183,10 +163,31 @@ deploy: build keypair
 	@echo "Deploying to local validator..."
 	solana program deploy --program-id $(KEYPAIR) $(OUTPUT)
 
-# Run tests
-test: deploy
+# Run core tests (VM + parser)
+test: deploy compiler
 	@echo ""
-	@echo "Running tests..."
+	@echo "Running core tests..."
+	@sleep 2
+	@node tests/test_vm_only.js
+	@node tests/test_parser_vm.js
+
+# Run VM-only tests (bytecode execution)
+test-vm: deploy compiler
+	@echo ""
+	@sleep 2
+	@node tests/test_vm_only.js
+
+# Run parser+VM tests (source execution)
+test-parser: deploy
+	@echo ""
+	@sleep 2
+	@node tests/test_parser_vm.js
+
+# Run all tests
+test-all: deploy compiler examples
+	@echo ""
+	@echo "Running all tests..."
+	@sleep 2
 	@cd tests && ./run_tests.sh
 
 # Build bytecode examples
@@ -225,7 +226,10 @@ help:
 	@echo "  make compiler     - Build native bytecode compiler"
 	@echo "  make examples     - Compile Python examples to bytecode"
 	@echo "  make deploy       - Build and deploy to local validator"
-	@echo "  make test         - Deploy and run tests"
+	@echo "  make test         - Run core tests (VM + parser)"
+	@echo "  make test-vm      - Run VM-only tests (bytecode)"
+	@echo "  make test-parser  - Run parser+VM tests (source)"
+	@echo "  make test-all     - Run full test suite"
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make help         - Show this help"
 	@echo ""
@@ -233,6 +237,7 @@ help:
 	@echo "  - Solana CLI (solana, solana-keygen)"
 	@echo "  - Solana platform-tools (clang, llc, ld.lld)"
 	@echo "  - GCC (for native compiler)"
+	@echo "  - Node.js (for tests)"
 	@echo ""
 	@echo "Output:"
 	@echo "  $(OUTPUT)"

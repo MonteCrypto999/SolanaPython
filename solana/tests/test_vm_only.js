@@ -91,9 +91,24 @@ const TEST_CASES = [
     { name: 'equal true', code: `5 == 5`, expected: 'True' },
     { name: 'equal false', code: `5 == 6`, expected: 'False' },
 
-    // === Solana Builtins ===
-    { name: 'time returns unix timestamp', code: `time() > 1700000000`, expected: 'True' },
-    { name: 'slot returns positive', code: `slot() > 0`, expected: 'True' },
+    // === Solana Module ===
+    { name: 'solana.slot returns positive', code: `import solana\nsolana.slot() > 0`, expected: 'True' },
+    { name: 'solana.epoch returns non-negative', code: `import solana\nsolana.epoch() >= 0`, expected: 'True' },
+
+    // === Time Module ===
+    { name: 'time.time returns timestamp', code: `import time\ntime.time() > 1700000000`, expected: 'True' },
+    { name: 'time.ctime returns string', code: `import time\nlen(time.ctime(1700000000)) > 20`, expected: 'True' },
+    { name: 'time.ctime format check', code: `import time\ntime.ctime(1700000000)`, expected: 'Tue Nov 14 22:13:20 2023' },
+    { name: 'time.asctime returns string', code: `import time\nlen(time.asctime()) > 20`, expected: 'True' },
+    { name: 'time.gmtime returns object', code: `import time\nt = time.gmtime(1700000000)\nt.tm_year`, expected: '2023' },
+    { name: 'time.gmtime month', code: `import time\nt = time.gmtime(1700000000)\nt.tm_mon`, expected: '11' },
+    { name: 'time.gmtime day', code: `import time\nt = time.gmtime(1700000000)\nt.tm_mday`, expected: '14' },
+    { name: 'time.gmtime hour', code: `import time\nt = time.gmtime(1700000000)\nt.tm_hour`, expected: '22' },
+    { name: 'time.gmtime minute', code: `import time\nt = time.gmtime(1700000000)\nt.tm_min`, expected: '13' },
+    { name: 'time.gmtime second', code: `import time\nt = time.gmtime(1700000000)\nt.tm_sec`, expected: '20' },
+    { name: 'time.localtime returns object', code: `import time\nt = time.localtime(1700000000)\nt.tm_year`, expected: '2023' },
+    { name: 'time.mktime with 6-element list', code: `import time\ntime.mktime([2023, 11, 14, 22, 13, 20]) > 1699900000`, expected: 'True' },
+    { name: 'time.mktime with 9-element tuple', code: `import time\ntime.mktime((2023, 11, 14, 22, 13, 20, 0, 0, 0)) > 1699900000`, expected: 'True' },
 
     // === Logical Operators ===
     { name: 'and true', code: `True and True`, expected: 'True' },
@@ -114,8 +129,8 @@ const TEST_CASES = [
     { name: 'min two args', code: `min(3, 7)`, expected: '3' },
     { name: 'min three args', code: `min(1, 5, 3)`, expected: '1' },
 
-    // === epoch() and bool() ===
-    { name: 'epoch returns value', code: `epoch() + 1`, expected: '1' },
+    // === More solana module tests ===
+    { name: 'solana epoch plus one', code: `import solana\nsolana.epoch() + 1`, expected: '1' },
     { name: 'bool true', code: `bool(1)`, expected: '1' },
     { name: 'bool false', code: `bool(0)`, expected: '0' },
     { name: 'bool empty string', code: `bool('')`, expected: '0' },
@@ -162,6 +177,56 @@ const TEST_CASES = [
     { name: 'math.exp(0)', code: `import math\nmath.exp(0.0)`, expected: '1.0' },
     { name: 'math.pi constant', code: `import math\nmath.pi > 3.14`, expected: 'True' },
     { name: 'math.e constant', code: `import math\nmath.e > 2.71`, expected: 'True' },
+
+    // === Base64 Module ===
+    { name: 'base64.b64decode length', code: `import base64\nlen(base64.b64decode('SGVsbG8='))`, expected: '5' },
+    { name: 'base64.b64decode empty', code: `import base64\nlen(base64.b64decode(''))`, expected: '0' },
+    { name: 'base64.b64decode single char', code: `import base64\nlen(base64.b64decode('QQ=='))`, expected: '1' },
+
+    // === JSON Module ===
+    { name: 'json.dumps int', code: `import json\njson.dumps(42)`, expected: '42' },
+    { name: 'json.dumps string', code: `import json\njson.dumps('hello')`, expected: '"hello"' },
+    { name: 'json.dumps list', code: `import json\njson.dumps([1,2,3])`, expected: '[1,2,3]' },
+    { name: 'json.loads int', code: `import json\njson.loads('42')`, expected: '42' },
+    { name: 'json.loads string', code: `import json\njson.loads('"hello"')`, expected: 'hello' },
+    { name: 'json.loads list length', code: `import json\nlen(json.loads('[1,2,3]'))`, expected: '3' },
+    { name: 'json.loads bool true', code: `import json\njson.loads('true')`, expected: '1' },
+    { name: 'json.loads bool false', code: `import json\njson.loads('false')`, expected: '0' },
+
+    // === Struct Module ===
+    { name: 'struct.calcsize B', code: `import struct\nstruct.calcsize('B')`, expected: '1' },
+    { name: 'struct.calcsize H', code: `import struct\nstruct.calcsize('H')`, expected: '2' },
+    { name: 'struct.calcsize I', code: `import struct\nstruct.calcsize('I')`, expected: '4' },
+    { name: 'struct.calcsize Q', code: `import struct\nstruct.calcsize('Q')`, expected: '8' },
+    { name: 'struct.calcsize 4B', code: `import struct\nstruct.calcsize('4B')`, expected: '4' },
+    { name: 'struct.pack unpack B', code: `import struct\nstruct.unpack('B', struct.pack('B', [255]))[0]`, expected: '255' },
+    { name: 'struct.pack unpack H', code: `import struct\nstruct.unpack('<H', struct.pack('<H', [0x1234]))[0]`, expected: '4660' },
+
+    // === Solana Hash Functions ===
+    { name: 'solana.sha256 returns 32 bytes', code: `import solana\nlen(solana.sha256(bytearray([1,2,3])))`, expected: '32' },
+    { name: 'solana.keccak256 returns 32 bytes', code: `import solana\nlen(solana.keccak256(bytearray([1,2,3])))`, expected: '32' },
+    { name: 'solana.blake3 returns 32 bytes', code: `import solana\nlen(solana.blake3(bytearray([1,2,3])))`, expected: '32' },
+
+    // === Base58 Module ===
+    { name: 'base58.b58decode pubkey', code: `import base58\nlen(base58.b58decode('11111111111111111111111111111111'))`, expected: '32' },
+    { name: 'base58.b58decode short', code: `import base58\nlen(base58.b58decode('1'))`, expected: '1' },
+    { name: 'base58.b58encode roundtrip', code: `import base58\nbase58.b58encode(base58.b58decode('ABC'))`, expected: 'ABC' },
+    { name: 'base58.b58encode bytes', code: `import base58\nbase58.b58encode(bytearray([0, 0, 1]))`, expected: '112' },
+    { name: 'base58.b58encode from decode', code: `import base58\nbase58.b58encode(base58.b58decode('112'))`, expected: '112' },
+    // Token Program pubkey roundtrip
+    { name: 'base58 token program roundtrip', code: `import base58\nbase58.b58encode(base58.b58decode('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))`, expected: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+    // Associated Token Program
+    { name: 'base58 ATA program roundtrip', code: `import base58\nbase58.b58encode(base58.b58decode('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'))`, expected: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL' },
+    // System program (all zeros)
+    { name: 'base58 system program roundtrip', code: `import base58\nbase58.b58encode(base58.b58decode('11111111111111111111111111111111'))`, expected: '11111111111111111111111111111111' },
+    // Decode length checks
+    { name: 'base58.b58decode 2 char', code: `import base58\nlen(base58.b58decode('2g'))`, expected: '1' },
+    { name: 'base58.b58decode token program len', code: `import base58\nlen(base58.b58decode('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'))`, expected: '32' },
+    // Metaplex Token Metadata program
+    { name: 'base58 metaplex roundtrip', code: `import base58\nbase58.b58encode(base58.b58decode('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'))`, expected: 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s' },
+    // Simple encode/decode
+    { name: 'base58 roundtrip 2', code: `import base58\nbase58.b58encode(base58.b58decode('2'))`, expected: '2' },
+    { name: 'base58 roundtrip Z', code: `import base58\nbase58.b58encode(base58.b58decode('z'))`, expected: 'z' },
 ];
 
 /**
@@ -308,9 +373,14 @@ async function main() {
     console.log(`Tests: ${TEST_CASES.length}\n`);
 
     // Run tests
-    let passed = 0, failed = 0, totalCU = 0, totalBytes = 0;
+    let passed = 0, failed = 0, skipped = 0, totalCU = 0, totalBytes = 0;
 
     for (const test of TEST_CASES) {
+        if (test.skip) {
+            console.log(`${CYAN}SKIP${RESET} ${test.name} ${DIM}(${test.skip})${RESET}`);
+            skipped++;
+            continue;
+        }
         const result = await runTest(connection, programId, payer, test, verbose);
         if (result.passed) {
             passed++;
@@ -327,7 +397,8 @@ async function main() {
     console.log(`${CYAN}========================================${RESET}`);
     console.log(`${GREEN}Passed: ${passed}${RESET}`);
     if (failed > 0) console.log(`${RED}Failed: ${failed}${RESET}`);
-    console.log(`Total: ${passed + failed}`);
+    if (skipped > 0) console.log(`${CYAN}Skipped: ${skipped}${RESET}`);
+    console.log(`Total: ${passed + failed + skipped}`);
     if (passed > 0) {
         console.log(`${DIM}Average CU: ${Math.round(totalCU / passed)}${RESET}`);
         console.log(`${DIM}Average bytecode: ${Math.round(totalBytes / passed)} bytes${RESET}`);
