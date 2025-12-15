@@ -205,7 +205,7 @@ const TEST_CASES = [
     // === Solana Hash Functions ===
     { name: 'solana.sha256 returns 32 bytes', code: `import solana\nlen(solana.sha256(bytearray([1,2,3])))`, expected: '32' },
     { name: 'solana.keccak256 returns 32 bytes', code: `import solana\nlen(solana.keccak256(bytearray([1,2,3])))`, expected: '32' },
-    { name: 'solana.blake3 returns 32 bytes', code: `import solana\nlen(solana.blake3(bytearray([1,2,3])))`, expected: '32' },
+    // Note: blake3 syscall not available on mainnet yet
 
     // === Base58 Module ===
     { name: 'base58.b58decode pubkey', code: `import base58\nlen(base58.b58decode('11111111111111111111111111111111'))`, expected: '32' },

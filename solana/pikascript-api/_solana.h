@@ -26,7 +26,7 @@ int64_t _solana_cpi(PikaObj *self, int program_id, PikaObj* accounts, Arg* data)
 /* Hash functions - return 32-byte hash as bytearray */
 Arg* _solana_sha256(PikaObj *self, Arg* data);
 Arg* _solana_keccak256(PikaObj *self, Arg* data);
-Arg* _solana_blake3(PikaObj *self, Arg* data);
+/* Note: blake3 syscall not available on mainnet yet */
 
 /* Program Derived Address (PDA) functions */
 /* create_program_address(seeds: list[bytes], program_id: bytes) -> bytes (32-byte pubkey) */

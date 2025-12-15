@@ -210,8 +210,9 @@ Note: Only basic `try`/`except` is supported. No `finally`, `raise`, or specific
 | Function | Description | Example |
 |----------|-------------|---------|
 | `open(path, mode)` | Open account as file (VFS) | `f = open('/sol/0', 'r')` |
+| `cpi(program, accounts, data)` | Cross-Program Invocation | `cpi(0, [1,2], data)` |
 
-Note: Time functions are in the `time` module. Solana-specific functions (`slot()`, `epoch()`, `cpi()`) are in the `solana` module.
+Note: `cpi()` is available both as a builtin and via `solana.cpi()`. Time functions are in the `time` module. Other Solana-specific functions (`slot()`, `epoch()`, `sha256()`, etc.) are in the `solana` module.
 
 ### bytearray
 
@@ -234,23 +235,34 @@ print(b[1])    # 20
 
 ## Modules
 
-PikaPython supports three importable modules:
+PikaPython supports these importable modules:
 
 | Module | Description | Import |
 |--------|-------------|--------|
 | `math` | Mathematical functions (trig, log, sqrt, etc.) | `import math` |
 | `time` | Time functions using Solana clock sysvar | `import time` |
-| `solana` | Solana-specific functions (slot, epoch, CPI) | `import solana` |
+| `solana` | Solana-specific (slot, epoch, CPI, hashing, PDAs) | `import solana` |
+| `base58` | Base58 encoding/decoding (Solana addresses) | `import base58` |
+| `base64` | Base64 encoding/decoding | `import base64` |
+| `json` | JSON encoding/decoding | `import json` |
+| `struct` | Pack/unpack binary data | `import struct` |
 
 ```python
 import math
 import time
 import solana
+import base58
+import base64
+import json
+import struct
 
 # Use module functions
-print(math.sqrt(16))      # 4.0
-print(time.time())        # Unix timestamp
-print(solana.slot())      # Current slot
+print(math.sqrt(16))                    # 4.0
+print(time.time())                      # Unix timestamp
+print(solana.slot())                    # Current slot
+print(base58.b58decode('11111...'))     # Decode pubkey
+print(json.dumps({'a': 1}))             # '{"a":1}'
+print(struct.pack('<I', 42))            # Pack u32
 ```
 
 ## Math Module
@@ -387,6 +399,10 @@ import solana
 | `solana.slot()` | Current slot number | `s = solana.slot()` |
 | `solana.epoch()` | Current epoch number | `e = solana.epoch()` |
 | `solana.cpi(program_idx, accounts, data)` | Cross-Program Invocation | `solana.cpi(0, [1, 2], b'\\x01')` |
+| `solana.sha256(data)` | SHA-256 hash (32 bytes) | `h = solana.sha256(b'hello')` |
+| `solana.keccak256(data)` | Keccak-256 hash (32 bytes) | `h = solana.keccak256(b'hello')` |
+| `solana.create_program_address(seeds, program_id)` | Create PDA | See below |
+| `solana.find_program_address(seeds, program_id)` | Find PDA with bump | See below |
 
 ### Example
 
@@ -399,12 +415,38 @@ print(solana.slot())  # 3358
 # Get current epoch
 print(solana.epoch())  # 0
 
+# Hash functions
+data = bytearray([1, 2, 3])
+sha_hash = solana.sha256(data)      # 32 bytes
+keccak_hash = solana.keccak256(data) # 32 bytes
+print(len(sha_hash))  # 32
+
 # Cross-Program Invocation
 # program_idx: index of target program in transaction accounts
 # accounts: list of account indices to pass
 # data: instruction data as bytes
 result = solana.cpi(0, [1, 2], bytearray([1, 2, 3]))
 print(result)  # 0 = success
+```
+
+### Program Derived Addresses (PDAs)
+
+```python
+import solana
+import base58
+
+# Program ID as bytes
+program_id = base58.b58decode('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+
+# Seeds as list of bytes
+seeds = [b'metadata', bytearray([1, 2, 3])]
+
+# Create PDA (must be valid - no bump search)
+pda = solana.create_program_address(seeds, program_id)
+
+# Find PDA with bump (searches for valid bump)
+pda, bump = solana.find_program_address(seeds, program_id)
+print(f'PDA bump: {bump}')
 ```
 
 ### CPI (Cross-Program Invocation)
@@ -430,6 +472,154 @@ for i in range(8):
 result = solana.cpi(0, [1, 2], data)
 if result == 0:
     print("Transfer successful!")
+```
+
+## Base58 Module
+
+The `base58` module provides Base58 encoding/decoding, commonly used for Solana addresses and keys.
+
+```python
+import base58
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `base58.b58decode(s)` | Decode base58 string to bytes | `b = base58.b58decode('11111...')` |
+| `base58.b58encode(data)` | Encode bytes to base58 string | `s = base58.b58encode(bytes)` |
+
+### Example
+
+```python
+import base58
+
+# Decode a Solana pubkey (System Program)
+pubkey_bytes = base58.b58decode('11111111111111111111111111111111')
+print(len(pubkey_bytes))  # 32
+
+# Encode bytes to base58
+encoded = base58.b58encode(pubkey_bytes)
+print(encoded)  # '11111111111111111111111111111111'
+
+# Roundtrip
+original = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+decoded = base58.b58decode(original)
+reencoded = base58.b58encode(decoded)
+print(reencoded == original)  # True
+```
+
+## Base64 Module
+
+The `base64` module provides Base64 encoding/decoding.
+
+```python
+import base64
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `base64.b64decode(s)` | Decode base64 string to bytes | `b = base64.b64decode('SGVsbG8=')` |
+| `base64.b64encode(data)` | Encode bytes to base64 string | `s = base64.b64encode(bytes)` |
+
+### Example
+
+```python
+import base64
+
+# Encode data
+data = bytearray([72, 101, 108, 108, 111])  # "Hello"
+encoded = base64.b64encode(data)
+print(encoded)  # 'SGVsbG8='
+
+# Decode data
+decoded = base64.b64decode('SGVsbG8=')
+print(len(decoded))  # 5
+```
+
+## JSON Module
+
+The `json` module provides JSON encoding/decoding.
+
+```python
+import json
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `json.dumps(obj)` | Encode object to JSON string | `s = json.dumps({'a': 1})` |
+| `json.loads(s)` | Decode JSON string to object | `obj = json.loads('{"a":1}')` |
+
+### Example
+
+```python
+import json
+
+# Encode to JSON
+data = {'name': 'test', 'value': 42}
+json_str = json.dumps(data)
+print(json_str)  # '{"name":"test","value":42}'
+
+# Decode from JSON
+parsed = json.loads('{"x": 10, "y": 20}')
+print(parsed['x'])  # 10
+
+# Lists
+arr = json.loads('[1, 2, 3]')
+print(len(arr))  # 3
+```
+
+## Struct Module
+
+The `struct` module provides binary data packing/unpacking, similar to Python's struct module.
+
+```python
+import struct
+```
+
+### Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `struct.pack(fmt, *values)` | Pack values to bytes | `b = struct.pack('<I', 42)` |
+| `struct.unpack(fmt, data)` | Unpack bytes to tuple | `vals = struct.unpack('<I', b)` |
+| `struct.calcsize(fmt)` | Calculate size of format | `n = struct.calcsize('<I')` |
+
+### Format Characters
+
+| Char | Type | Size |
+|------|------|------|
+| `B` | unsigned char | 1 byte |
+| `H` | unsigned short | 2 bytes |
+| `I` | unsigned int | 4 bytes |
+| `Q` | unsigned long long | 8 bytes |
+
+**Byte order:** Use `<` prefix for little-endian (standard for Solana).
+
+### Example
+
+```python
+import struct
+
+# Pack a u32 and u64 (little-endian)
+data = struct.pack('<IQ', 42, 1000000)
+print(len(data))  # 12 bytes
+
+# Unpack
+values = struct.unpack('<IQ', data)
+print(values[0])  # 42
+print(values[1])  # 1000000
+
+# Calculate size
+size = struct.calcsize('<IQ')
+print(size)  # 12
+
+# Useful for Solana instruction data
+transfer_ix = struct.pack('<IQ', 2, 1000000)  # Transfer 0.001 SOL
 ```
 
 ## Account Storage (VFS)

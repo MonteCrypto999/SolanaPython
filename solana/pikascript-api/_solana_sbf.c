@@ -17,7 +17,7 @@
 /* Hash syscalls use SolBytes struct: { ptr, len } */
 #include <sol/sha.h>
 #include <sol/keccak.h>
-#include <sol/blake3.h>
+/* Note: blake3 syscall not available on mainnet yet */
 
 /* Get slot from clock sysvar */
 static int64_t get_clock_slot(void) {
@@ -173,27 +173,7 @@ Arg* _solana_keccak256(PikaObj* self, Arg* data) {
 #endif
 }
 
-/* BLAKE3 hash */
-Arg* _solana_blake3(PikaObj* self, Arg* data) {
-    (void)self;
-#ifdef PIKA_SOLANA_SBF
-    if (data == NULL) return arg_newNull();
-
-    uint8_t* data_ptr = NULL;
-    size_t data_len = 0;
-
-    if (!get_bytes_from_arg(data, &data_ptr, &data_len)) return arg_newNull();
-
-    SolBytes input = { .addr = data_ptr, .len = data_len };
-    uint8_t hash[32];
-    sol_blake3(&input, 1, hash);
-
-    return arg_newBytes(hash, 32);
-#else
-    (void)data;
-    return arg_newNull();
-#endif
-}
+/* Note: BLAKE3 syscall not available on mainnet yet */
 
 /* Create program address from seeds and program ID */
 Arg* _solana_create_program_address(PikaObj* self, PikaObj* seeds, Arg* program_id) {
@@ -353,16 +333,6 @@ static void _solana_keccak256Method(PikaObj* self, Args* args) {
     }
 }
 
-static void _solana_blake3Method(PikaObj* self, Args* args) {
-    Arg* data = args_getArg(args, "data");
-    Arg* result = _solana_blake3(self, data);
-    if (result) {
-        method_returnArg(args, result);
-    } else {
-        method_returnArg(args, arg_newNull());
-    }
-}
-
 static void _solana_create_program_addressMethod(PikaObj* self, Args* args) {
     Arg* aSeeds = args_getArg(args, "seeds");
     PikaObj* seeds = NULL;
@@ -417,7 +387,7 @@ PikaObj* New__solana(Args* args) {
     /* Hash functions */
     class_defineMethod(self, "sha256", "data", (Method)_solana_sha256Method);
     class_defineMethod(self, "keccak256", "data", (Method)_solana_keccak256Method);
-    class_defineMethod(self, "blake3", "data", (Method)_solana_blake3Method);
+    /* Note: blake3 syscall not available on mainnet yet */
 
     /* PDA functions */
     class_defineMethod(self, "create_program_address", "seeds,program_id", (Method)_solana_create_program_addressMethod);
