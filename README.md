@@ -845,9 +845,9 @@ Approximate CU costs:
 | Nested loop | ~270K | Exceeds limit |
 | Function call | ~50-100K | ~1M |
 | Tuple operations | ~50-100K | ~700K-1.1M |
-| exec() | - | ~600K-1.4M |
-| import sol_N (source) | - | ~500K-900K |
-| import sol_N (bytecode) | - | ~50K-100K |
+| exec() | ~600K-1.4M | ~600K-1.4M |
+| import sol_N (source) | ~500K-900K | ~500K-900K |
+| import sol_N (bytecode) | ~50K-100K | ~50K-100K |
 
 **Recommendation:** For complex code, use bytecode mode (0x02) with the native compiler for significant CU savings. For reusable modules, store precompiled bytecode in accounts.
 

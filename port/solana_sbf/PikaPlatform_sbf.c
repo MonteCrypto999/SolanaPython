@@ -404,10 +404,12 @@ int pika_platform_fflush(void* stream) { (void)stream; return 0; }
 #define FD_TO_FILE(fd) ((FILE*)(uintptr_t)((fd) + 1))
 #define FILE_TO_FD(f) ((int)(uintptr_t)(f) - 1)
 
-/* Simple atoi for index parsing */
+/* Simple atoi for index parsing - returns -1 if not a valid number */
 static int simple_atoi(const char* s) {
+    if (!s || !*s) return -1;
     int result = 0;
-    while (*s >= '0' && *s <= '9') {
+    while (*s) {
+        if (*s < '0' || *s > '9') return -1;  /* Not a digit */
         result = result * 10 + (*s - '0');
         s++;
     }
@@ -417,13 +419,21 @@ static int simple_atoi(const char* s) {
 FILE* pika_platform_fopen(const char* filename, const char* modes) {
     int fd;
 
-    /* Check for /sol/N format (index-based, fast) */
+    /* Check for /sol/ prefix */
     if (filename[0] == '/' && filename[1] == 's' && filename[2] == 'o' &&
         filename[3] == 'l' && filename[4] == '/') {
-        int index = simple_atoi(filename + 5);
-        fd = sol_vfs_open_by_index((uint64_t)index, modes);
+        const char* path_part = filename + 5;
+        int index = simple_atoi(path_part);
+
+        if (index >= 0) {
+            /* /sol/N format - index-based access (fast) */
+            fd = sol_vfs_open_by_index((uint64_t)index, modes);
+        } else {
+            /* /sol/<pubkey> format - base58 pubkey after /sol/ */
+            fd = sol_vfs_open(path_part, modes);
+        }
     } else {
-        /* Base58 pubkey */
+        /* Raw base58 pubkey (no /sol/ prefix) */
         fd = sol_vfs_open(filename, modes);
     }
 
@@ -774,8 +784,11 @@ void pika_hook_unused_stack_arg(PikaVMFrame* vm, Arg* arg) {
 
     ArgType type = arg_getType(arg);
 
-    /* Skip None - no return data for void expressions (like print()) */
-    if (type == ARG_TYPE_NONE) return;
+    /* For None type, output "None" string (Python REPL style) */
+    if (type == ARG_TYPE_NONE) {
+        sol_set_return_data((uint8_t*)"None", 4);
+        return;
+    }
 
     /* Convert to string representation (like Python REPL) */
     Arg* str_arg = arg_toStrArg(arg);
@@ -783,20 +796,7 @@ void pika_hook_unused_stack_arg(PikaVMFrame* vm, Arg* arg) {
 
     char* str = arg_getStr(str_arg);
     if (str && str[0] != '\0') {
-        /* Log the result in single line */
-        char log_buf[256];
-        const char* prefix = "[PIKA] Result: ";
-        int pos = 0;
-        for (int i = 0; prefix[i] && pos < 240; i++) {
-            log_buf[pos++] = prefix[i];
-        }
-        for (int i = 0; str[i] && pos < 250; i++) {
-            log_buf[pos++] = str[i];
-        }
-        log_buf[pos] = '\0';
-        sol_log(log_buf);
-
-        /* Set as return data */
+        /* Set as return data (overwrites previous, so last expression wins) */
         sol_set_return_data((uint8_t*)str, strlen(str));
     }
 

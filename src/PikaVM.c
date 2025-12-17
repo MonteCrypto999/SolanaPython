@@ -3235,8 +3235,9 @@ static void _OPT_ADD(OperatorInfo* op) {
         size_t size2 = arg_getBytesSize(op->a2);
         op->res = arg_setBytes(op->res, "", NULL, size1 + size2);
         uint8_t* bytes_out = arg_getBytes(op->res);
-        pika_platform_memcpy(bytes_out, bytes1, size1);
-        pika_platform_memcpy(bytes_out + size1, bytes2, size2);
+        /* Skip size_t prefix - arg_getBytes returns ptr to [size][data], we need the data part */
+        pika_platform_memcpy(bytes_out + sizeof(size_t), bytes1 + sizeof(size_t), size1);
+        pika_platform_memcpy(bytes_out + sizeof(size_t) + size1, bytes2 + sizeof(size_t), size2);
         return;
     }
 #endif
@@ -3392,19 +3393,10 @@ float res = 1;
         return;
     }
 #if PIKA_MATH_ENABLE
-    #ifdef PIKA_SOLANA_SBF
-        // TODO: Implement bitfloat pow() for BPF
-        // For now, power with float exponents is not supported on BPF
-        PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
-        PikaVMFrame_setSysOut(op->vm, "TypeError: float power not supported on BPF");
-        op->res = NULL;
-        return;
-    #else
         float res = 1;
-        res = pow(op->f1, op->f2);
+        res = powf(op->f1, op->f2);
         op->res = arg_setFloat(op->res, "", res);
         return;
-    #endif
 #else
     PikaVMFrame_setErrorCode(op->vm, PIKA_RES_ERR_OPERATION_FAILED);
     PikaVMFrame_setSysOut(op->vm,
@@ -3539,7 +3531,7 @@ static Arg* VM_instruction_handler_OPT(PikaObj* self,
             }
 #if PIKA_MATH_ENABLE
             if (op.t1 == ARG_TYPE_FLOAT || op.t2 == ARG_TYPE_FLOAT) {
-                op.res = arg_setFloat(op.res, "", fmod(op.f1, op.f2));
+                op.res = arg_setFloat(op.res, "", fmodf(op.f1, op.f2));
                 goto __exit;
             }
 #endif
@@ -3717,7 +3709,7 @@ op.res = arg_setBool(op.res, "", op.f1 > op.f2);
         }
 #if PIKA_MATH_ENABLE
         if ((op.t1 == ARG_TYPE_FLOAT) || (op.t2 == ARG_TYPE_FLOAT)) {
-            op.res = arg_setFloat(op.res, "", floor(op.f1 / op.f2));
+            op.res = arg_setFloat(op.res, "", floorf(op.f1 / op.f2));
             goto __exit;
         }
 #endif
@@ -4321,10 +4313,12 @@ static enum shellCTRL __obj_shellLineHandler_debug(PikaObj* self,
     /* print */
     if (strIsStartWith(input_line, "p ")) {
         char* path = input_line + 2;
-        Arg* res = obj_run(self, path);
+        VMParameters* res = obj_run(self, path);
         if (NULL != res) {
-            arg_print(res, pika_true, "\r\n");
-            arg_deinit(res);
+            Arg* ret = obj_getArg(res, "@rt");
+            if (ret) {
+                arg_print(ret, pika_true, "\r\n");
+            }
         }
         return SHELL_CTRL_CONTINUE;
     }
@@ -5151,10 +5145,13 @@ void PikaVMFrame_solveUnusedStack(PikaVMFrame* vm) {
     for (int i = 0; i < top; i++) {
         Arg* arg = stack_popArg_alloc(&(vm->stack));
         ArgType type = arg_getType(arg);
+#ifndef PIKA_SOLANA_SBF
+        /* Skip None values (standard behavior for non-REPL environments) */
         if (type == ARG_TYPE_NONE) {
             arg_deinit(arg);
             continue;
         }
+#endif
         if (vm->error.line_code != 0) {
             arg_deinit(arg);
             continue;

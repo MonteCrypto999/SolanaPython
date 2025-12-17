@@ -14,6 +14,15 @@
 #include <stdint.h>
 
 /* =============================================================================
+ * PikaPython feature configuration
+ * ============================================================================= */
+
+#define PIKA_BUILTIN_STRUCT_ENABLE 1
+
+/* Enable custom hook for unused stack arguments (REPL-style return data) */
+#define PIKA_HOOK_UNUSED_STACK_ARG_OVERRIDE 1
+
+/* =============================================================================
  * Standard definitions
  * ============================================================================= */
 

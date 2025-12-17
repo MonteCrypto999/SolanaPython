@@ -1,14 +1,18 @@
 /**
- * PikaPython Native Bytecode Compiler
+ * PikaPython Bytecode Compiler
  *
- * Compiles Python source to PikaPython bytecode on the local machine.
- * Outputs bytecode in the same format as the on-chain compiler.
+ * Compiles Python source to PikaPython bytecode.
+ * Works both as native CLI and as WASM module for browser.
  *
- * Usage:
+ * Native usage:
  *   ./pika_compile "print('Hello')"           Output hex to stdout
  *   ./pika_compile -o output.bin "print(1)"   Write binary to file
  *   ./pika_compile -f script.py               Compile from file
- *   ./pika_compile -f script.py -o out.bin    Compile file to binary
+ *
+ * WASM usage:
+ *   compile_python(source) -> returns 0 on success
+ *   get_output_ptr() -> pointer to bytecode
+ *   get_output_size() -> size of bytecode
  */
 
 // Standard includes FIRST (before PikaPython which may override)
@@ -17,8 +21,16 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#define EXPORT EMSCRIPTEN_KEEPALIVE
+#else
+#define EXPORT
+#endif
+
 // Configuration - these should match what's set in build_compiler.sh
 // (defined via -D flags in compiler command line)
+#define PIKA_BUILTIN_STRUCT_ENABLE 1
 
 // PikaPython core includes (paths relative to solana/tools/ directory)
 #include "../../src/PikaPlatform.c"
@@ -57,42 +69,18 @@ char* string_slice(Args* outBuffs, char* str, int start, int end) { return NULL;
 // Bytecode magic header
 static const uint8_t BYTECODE_MAGIC[] = {0x0f, 'p', 'y', 'o'};
 
-static void print_usage(const char* prog) {
-    fprintf(stderr, "PikaPython Native Bytecode Compiler\n\n");
-    fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  %s \"print('Hello')\"           Compile and output hex\n", prog);
-    fprintf(stderr, "  %s -o output.bin \"code\"       Write binary to file\n", prog);
-    fprintf(stderr, "  %s -f script.py               Compile from file\n", prog);
-    fprintf(stderr, "  %s -f script.py -o out.bin    Compile file to binary\n", prog);
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  -o <file>   Write binary bytecode to file\n");
-    fprintf(stderr, "  -f <file>   Read Python source from file\n");
-    fprintf(stderr, "  -h, --help  Show this help\n");
+// Output buffer for WASM
+static uint8_t* output_buffer = NULL;
+static uint32_t output_size = 0;
+
+EXPORT
+uint8_t* get_output_ptr(void) {
+    return output_buffer;
 }
 
-static char* read_file(const char* filename) {
-    FILE* f = fopen(filename, "r");
-    if (!f) {
-        fprintf(stderr, "Error: Cannot open file '%s'\n", filename);
-        return NULL;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    char* content = malloc(size + 1);
-    if (!content) {
-        fclose(f);
-        fprintf(stderr, "Error: Out of memory\n");
-        return NULL;
-    }
-
-    size_t read_size = fread(content, 1, size, f);
-    content[read_size] = '\0';
-    fclose(f);
-
-    return content;
+EXPORT
+uint32_t get_output_size(void) {
+    return output_size;
 }
 
 static int compile_to_bytecode(const char* source, uint8_t** out_bytecode, uint32_t* out_size) {
@@ -103,7 +91,9 @@ static int compile_to_bytecode(const char* source, uint8_t** out_bytecode, uint3
 
     // Parse Python to bytecode
     if (PIKA_RES_OK != pika_lines2Bytes(&bcf, (char*)source)) {
+#ifndef __EMSCRIPTEN__
         fprintf(stderr, "Error: Failed to parse Python source\n");
+#endif
         return -1;
     }
 
@@ -118,7 +108,9 @@ static int compile_to_bytecode(const char* source, uint8_t** out_bytecode, uint3
 
     uint8_t* output = malloc(total_size);
     if (!output) {
+#ifndef __EMSCRIPTEN__
         fprintf(stderr, "Error: Out of memory\n");
+#endif
         return -1;
     }
 
@@ -155,6 +147,61 @@ static int compile_to_bytecode(const char* source, uint8_t** out_bytecode, uint3
     *out_bytecode = output;
     *out_size = pos;
     return 0;
+}
+
+// WASM entry point
+EXPORT
+int compile_python(const char* source) {
+    // Free previous output
+    if (output_buffer) {
+        free(output_buffer);
+        output_buffer = NULL;
+        output_size = 0;
+    }
+
+    int result = compile_to_bytecode(source, &output_buffer, &output_size);
+    return result;
+}
+
+#ifndef __EMSCRIPTEN__
+// Native CLI code
+
+static void print_usage(const char* prog) {
+    fprintf(stderr, "PikaPython Native Bytecode Compiler\n\n");
+    fprintf(stderr, "Usage:\n");
+    fprintf(stderr, "  %s \"print('Hello')\"           Compile and output hex\n", prog);
+    fprintf(stderr, "  %s -o output.bin \"code\"       Write binary to file\n", prog);
+    fprintf(stderr, "  %s -f script.py               Compile from file\n", prog);
+    fprintf(stderr, "  %s -f script.py -o out.bin    Compile file to binary\n", prog);
+    fprintf(stderr, "\nOptions:\n");
+    fprintf(stderr, "  -o <file>   Write binary bytecode to file\n");
+    fprintf(stderr, "  -f <file>   Read Python source from file\n");
+    fprintf(stderr, "  -h, --help  Show this help\n");
+}
+
+static char* read_file(const char* filename) {
+    FILE* f = fopen(filename, "r");
+    if (!f) {
+        fprintf(stderr, "Error: Cannot open file '%s'\n", filename);
+        return NULL;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char* content = malloc(size + 1);
+    if (!content) {
+        fclose(f);
+        fprintf(stderr, "Error: Out of memory\n");
+        return NULL;
+    }
+
+    size_t read_size = fread(content, 1, size, f);
+    content[read_size] = '\0';
+    fclose(f);
+
+    return content;
 }
 
 int main(int argc, char** argv) {
@@ -237,3 +284,4 @@ int main(int argc, char** argv) {
     if (file_content) free(file_content);
     return 0;
 }
+#endif

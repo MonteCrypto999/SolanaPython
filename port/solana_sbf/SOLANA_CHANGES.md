@@ -15,9 +15,11 @@ This document tracks the specific changes made to PikaPython source files to sup
 ### 2. Software Floating Point Support
 *   **Context:** Solana BPF does not support hardware floating-point instructions or standard float ABI.
 *   **Change:**
+    *   The toolchain uses LLVM's built-in soft float support, which provides software implementations of floating-point operations via libm.
+    *   Math functions use the `float` variants (e.g., `powf()` instead of `pow()`) since `PIKA_FLOAT_TYPE_DOUBLE=0`.
     *   Added `arg_setFloatBits`, `arg_newFloatBits`, and `arg_getFloatBits` under `PIKA_SOLANA_SBF`.
-    *   These helper functions treat floats as raw `uint32_t` bit patterns, allowing the `bitfloat_bpf.h` library to handle operations via integer arithmetic.
-    *   Modified `arg_getFloat` to return `0.0` (as casted integer 0) or use `bf32_to_i64` for string formatting where appropriate.
+    *   These helper functions treat floats as raw `uint32_t` bit patterns for storage and retrieval.
+    *   Modified `arg_getFloat` to return `0.0` (as casted integer 0) for string formatting where appropriate.
 
 ### 3. String Formatting (`snprintf`)
 *   **Context:** Standard `snprintf` with variadic arguments is problematic or unsupported in the minimal BPF C runtime.
@@ -91,7 +93,7 @@ This document tracks the specific changes made to PikaPython source files to sup
 
 ### 1. SBF-Specific Header Inclusions
 *   **Change:**
-    *   Added `#include "../port/solana_sbf/bitfloat_bpf.h"`, `#include <sol/return_data.h>` conditionally under `#ifdef PIKA_SOLANA_SBF`.
+    *   Added `#include <sol/return_data.h>` conditionally under `#ifdef PIKA_SOLANA_SBF` for return data syscalls.
 
 ### 2. Global State & Debug Shell Disablement
 *   **Context:** Solana BPF does not allow writable global state.

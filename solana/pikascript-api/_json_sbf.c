@@ -62,14 +62,25 @@ static void buf_append_float(char* buf, size_t* pos, size_t max, double f) {
     buf_append_int(buf, pos, max, int_part);
 
     double frac = f - int_part;
-    if (frac > 0.000001) {
-        buf_appendc(buf, pos, max, '.');
-        for (int d = 0; d < 6 && frac > 0.000001; d++) {
-            frac *= 10;
-            int digit = (int)frac;
-            buf_appendc(buf, pos, max, '0' + digit);
-            frac -= digit;
-        }
+    /* Always output decimal for floats, strip trailing zeros after */
+    buf_appendc(buf, pos, max, '.');
+    size_t decimal_start = *pos;
+
+    /* Write up to 6 decimal digits */
+    for (int d = 0; d < 6; d++) {
+        frac *= 10;
+        int digit = (int)frac;
+        buf_appendc(buf, pos, max, '0' + digit);
+        frac -= digit;
+    }
+
+    /* Strip trailing zeros */
+    while (*pos > decimal_start && buf[*pos - 1] == '0') {
+        (*pos)--;
+    }
+    /* If all decimal digits were zeros, keep at least one zero (e.g. 3.0) */
+    if (*pos == decimal_start) {
+        buf_appendc(buf, pos, max, '0');
     }
 }
 
@@ -95,6 +106,16 @@ static void buf_append_str(char* buf, size_t* pos, size_t max, const char* s) {
     buf_appendc(buf, pos, max, '"');
 }
 
+/* Check if object is a dict (has "dict" pointer) */
+static int is_dict(PikaObj* obj) {
+    return obj_getPtr(obj, "dict") != NULL;
+}
+
+/* Check if object is a list (has "list" pointer) */
+static int is_list(PikaObj* obj) {
+    return obj_getPtr(obj, "list") != NULL;
+}
+
 /* Encode a single Arg to JSON */
 static char* json_encode_arg(PikaObj* self, Arg* arg, char* buf, size_t* pos, size_t max) {
     if (arg == NULL) {
@@ -118,21 +139,45 @@ static char* json_encode_arg(PikaObj* self, Arg* arg, char* buf, size_t* pos, si
         PikaObj* obj = arg_getPtr(arg);
         if (obj == NULL) {
             buf_append(buf, pos, max, "null");
-        } else {
-            /* Check if it's a list */
-            int size = pikaList_getSize(obj);
-            if (size >= 0) {
-                buf_appendc(buf, pos, max, '[');
-                for (int i = 0; i < size; i++) {
-                    if (i > 0) buf_appendc(buf, pos, max, ',');
-                    Arg* item = pikaList_get(obj, i);
-                    json_encode_arg(self, item, buf, pos, max);
+        } else if (is_dict(obj)) {
+            /* Encode dict as JSON object */
+            buf_appendc(buf, pos, max, '{');
+            Args* dict = obj_getPtr(obj, "dict");
+            Args* keys = obj_getPtr(obj, "_keys");
+            if (dict && keys) {
+                int first = 1;
+                /* Iterate over keys */
+                Arg* key_arg = args_getArgByIndex(keys, 0);
+                int idx = 0;
+                while (key_arg != NULL) {
+                    char* key = arg_getStr(key_arg);
+                    if (key) {
+                        Arg* val = args_getArg(dict, key);
+                        if (val) {
+                            if (!first) buf_appendc(buf, pos, max, ',');
+                            first = 0;
+                            buf_append_str(buf, pos, max, key);
+                            buf_appendc(buf, pos, max, ':');
+                            json_encode_arg(self, val, buf, pos, max);
+                        }
+                    }
+                    idx++;
+                    key_arg = args_getArgByIndex(keys, idx);
                 }
-                buf_appendc(buf, pos, max, ']');
-            } else {
-                /* Try as dict - just output empty object for now */
-                buf_append(buf, pos, max, "{}");
             }
+            buf_appendc(buf, pos, max, '}');
+        } else if (is_list(obj)) {
+            /* Encode list as JSON array */
+            buf_appendc(buf, pos, max, '[');
+            int size = pikaList_getSize(obj);
+            for (int i = 0; i < size; i++) {
+                if (i > 0) buf_appendc(buf, pos, max, ',');
+                Arg* item = pikaList_get(obj, i);
+                json_encode_arg(self, item, buf, pos, max);
+            }
+            buf_appendc(buf, pos, max, ']');
+        } else {
+            buf_append(buf, pos, max, "null");
         }
     } else {
         buf_append(buf, pos, max, "null");
@@ -257,16 +302,59 @@ static Arg* json_parse_value(const char* s, size_t* pos, size_t len) {
     } else if (c == '[') {
         return json_parse_array(s, pos, len);
     } else if (c == '{') {
-        /* Skip objects for now - return empty dict */
-        int depth = 1;
+        /* Parse JSON object into dict */
         (*pos)++;
-        while (*pos < len && depth > 0) {
-            if (s[*pos] == '{') depth++;
-            else if (s[*pos] == '}') depth--;
-            (*pos)++;
-        }
         PikaObj* dict = newNormalObj(New_PikaStdData_Dict);
         PikaStdData_Dict___init__(dict);
+
+        skip_ws(s, pos, len);
+        if (*pos < len && s[*pos] == '}') {
+            (*pos)++;
+            return arg_newObj(dict);
+        }
+
+        while (*pos < len) {
+            skip_ws(s, pos, len);
+            /* Parse key (must be string) */
+            if (*pos >= len || s[*pos] != '"') break;
+            Arg* key_arg = json_parse_string(s, pos, len);
+            char* key = arg_getStr(key_arg);
+
+            skip_ws(s, pos, len);
+            if (*pos >= len || s[*pos] != ':') {
+                arg_deinit(key_arg);
+                break;
+            }
+            (*pos)++; /* skip ':' */
+
+            skip_ws(s, pos, len);
+            Arg* val = json_parse_value(s, pos, len);
+
+            /* Add to dict using __vm_Dict_set through the wrapper */
+            if (key) {
+                Args* dict_args = obj_getPtr(dict, "dict");
+                Args* keys_args = obj_getPtr(dict, "_keys");
+                if (dict_args && keys_args) {
+                    Arg* val_copy = arg_copy(val);
+                    arg_setName(val_copy, key);
+                    args_setArg(dict_args, val_copy);
+
+                    Arg* key_copy = arg_setStr(NULL, key, key);
+                    args_setArg(keys_args, key_copy);
+                }
+            }
+            arg_deinit(key_arg);
+            arg_deinit(val);
+
+            skip_ws(s, pos, len);
+            if (*pos >= len) break;
+            if (s[*pos] == '}') {
+                (*pos)++;
+                break;
+            }
+            if (s[*pos] == ',') (*pos)++;
+        }
+
         return arg_newObj(dict);
     } else if (c == 't' && *pos + 3 < len && s[*pos+1] == 'r' && s[*pos+2] == 'u' && s[*pos+3] == 'e') {
         *pos += 4;

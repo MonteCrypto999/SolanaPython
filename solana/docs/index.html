@@ -1,0 +1,2303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SolanaPython</title>
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="favicon/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-icon-180x180.png">
+    <link rel="manifest" href="favicon/manifest.json">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #333;
+            position: relative;
+        }
+        .header-wallet {
+            position: absolute;
+            top: 0;
+            right: 0;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #14F195;
+        }
+        textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+        .mode-toggle {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .mode-btn {
+            flex: 1;
+            padding: 12px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #888;
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mode-btn:hover {
+            border-color: #555;
+        }
+        .mode-btn.active {
+            background: #14F195;
+            color: #000;
+            border-color: #14F195;
+            font-weight: 600;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 14px 24px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        .btn-primary {
+            flex: 1;
+            background: #14F195;
+            color: #000;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: #0fd584;
+        }
+        .btn-primary:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            flex: 1;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            border: 1px solid #333;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            border-color: #555;
+        }
+        .btn-secondary:disabled {
+            color: #666;
+            cursor: not-allowed;
+        }
+        .btn-wallet {
+            background: #512da8;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+        .btn-wallet:hover {
+            background: #5e35b1;
+        }
+        .btn-wallet.connected {
+            background: #1a1a1a;
+            border: 1px solid #512da8;
+            color: #b39ddb;
+        }
+        .output {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 16px;
+            min-height: 100px;
+        }
+        .output-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #222;
+        }
+        .output-title {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .output-meta {
+            font-size: 12px;
+            color: #666;
+        }
+        .output-content {
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .output-content.success {
+            color: #14F195;
+        }
+        .output-content.error {
+            color: #f14668;
+        }
+        .output-content.pending {
+            color: #ffdd57;
+        }
+        .network-select {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .network-btn {
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #666;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .network-btn.active {
+            border-color: #14F195;
+            color: #14F195;
+        }
+        .info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 20px;
+            border-top: 1px solid #333;
+            color: #888;
+            font-size: 12px;
+        }
+        footer a {
+            color: #14F195;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+        footer svg {
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+        a {
+            color: #14F195;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #333;
+            border-top-color: #14F195;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .examples {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+        }
+        .examples h3 {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 12px;
+        }
+        .example-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .example-btn {
+            padding: 8px 12px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #aaa;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .example-btn:hover {
+            border-color: #14F195;
+            color: #14F195;
+        }
+        .package-btn {
+            padding: 8px 12px;
+            background: #1a1a1a;
+            border: 1px solid #512da8;
+            border-radius: 4px;
+            color: #b39ddb;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            position: relative;
+        }
+        .package-btn:hover {
+            border-color: #7c4dff;
+            color: #7c4dff;
+            background: #2a1a4a;
+        }
+        .package-btn .tooltip {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #ccc;
+            white-space: pre-line;
+            z-index: 100;
+            margin-bottom: 8px;
+            min-width: 220px;
+            text-align: left;
+        }
+        .package-btn:hover .tooltip {
+            display: block;
+        }
+        .bytecode-section {
+            margin-top: 12px;
+            padding: 12px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+        }
+        .bytecode-section textarea {
+            min-height: 80px;
+            font-size: 11px;
+        }
+        .accounts-section {
+            margin-top: 12px;
+            padding: 12px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+        }
+        .account-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        .account-row input[type="text"] {
+            flex: 1;
+            padding: 8px;
+            font-size: 12px;
+        }
+        .account-row label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #888;
+            margin: 0;
+            white-space: nowrap;
+        }
+        .account-row input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+        }
+        .account-row .remove-btn {
+            background: #333;
+            border: none;
+            color: #888;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .account-row .remove-btn:hover {
+            background: #f14668;
+            color: #fff;
+        }
+        .add-account-btn {
+            padding: 6px 12px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #888;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .add-account-btn:hover {
+            border-color: #14F195;
+            color: #14F195;
+        }
+        .scratchpad-section {
+            margin-top: 20px;
+            padding: 16px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+        }
+        .scratchpad-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .scratchpad-title {
+            color: #aaa;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .scratchpad-list {
+            margin-bottom: 12px;
+            max-height: 340px;
+            overflow-y: auto;
+        }
+        .scratchpad-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            position: relative;
+        }
+        .scratchpad-item .pubkey {
+            flex: 1;
+            color: #14F195;
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: help;
+        }
+        /* Global account tooltip */
+        #accountTooltip {
+            display: none;
+            position: fixed;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 11px;
+            color: #e0e0e0;
+            max-width: 620px;
+            max-height: 320px;
+            overflow: auto;
+            z-index: 10001;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+        }
+        #accountTooltip pre {
+            margin: 0;
+            white-space: pre;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+        #accountTooltip .tooltip-header {
+            color: #888;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #333;
+        }
+        .hoverable-pubkey {
+            cursor: pointer;
+            text-decoration: underline dotted;
+        }
+        .scratchpad-item .size {
+            color: #888;
+            white-space: nowrap;
+        }
+        .scratchpad-item .use-btn {
+            padding: 4px 8px;
+            background: #333;
+            border: none;
+            border-radius: 3px;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .scratchpad-item .use-btn:hover {
+            background: #14F195;
+            color: #000;
+        }
+        .scratchpad-item .copy-btn {
+            padding: 4px 8px;
+            background: #333;
+            border: none;
+            border-radius: 3px;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .scratchpad-item .copy-btn:hover {
+            background: #14F195;
+            color: #000;
+        }
+        .scratchpad-item .seeds {
+            color: #888;
+            font-size: 10px;
+            font-style: italic;
+        }
+        .scratchpad-item .bump {
+            color: #888;
+            font-size: 10px;
+        }
+        .scratchpad-item .remove-btn {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #422;
+            border: none;
+            border-radius: 3px;
+            color: #f88;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .scratchpad-item .remove-btn:hover {
+            background: #f14668;
+            color: #fff;
+        }
+        .create-scratchpad-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .create-scratchpad-row input {
+            width: 80px;
+            padding: 8px;
+            font-size: 12px;
+        }
+        .create-scratchpad-btn {
+            padding: 8px 16px;
+            background: #1a1a1a;
+            border: 1px solid #512da8;
+            border-radius: 4px;
+            color: #b39ddb;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .create-scratchpad-btn:hover:not(:disabled) {
+            background: #2a1a4a;
+            border-color: #7c4dff;
+            color: #7c4dff;
+        }
+        .create-scratchpad-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SolanaPython</h1>
+            <p class="subtitle">Run Python on Solana</p>
+            <button class="btn-secondary btn-wallet header-wallet" id="walletBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M21 18v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1h-9a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
+                </svg>
+                Select Wallet
+            </button>
+        </header>
+
+        <div class="section">
+            <div class="network-select">
+                <button class="network-btn active" data-network="mainnet-beta">Mainnet</button>
+                <button class="network-btn" data-network="localhost">Localhost</button>
+            </div>
+            <label>RPC URL</label>
+            <input type="text" id="rpcUrl" placeholder="https://mainnet.helius-rpc.com" value="https://mainnet.helius-rpc.com">
+            <label style="margin-top: 12px;">Program ID</label>
+            <input type="text" id="programId" placeholder="Enter PikaPython program ID..." value="pythonKBk7JcXsbwYzMRy2tL8L9tZqUbgekxRfT1bTE">
+        </div>
+
+        <div class="section">
+            <label>Mode</label>
+            <div class="mode-toggle">
+                <button class="mode-btn active" data-mode="script">Script (compile on-chain)</button>
+                <button class="mode-btn" data-mode="compile">Bytecode (compile off-chain)</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <label id="codeLabel">Python Code</label>
+            <textarea id="code" placeholder="print('Hello, Solana!')">print('Hello, Solana!')</textarea>
+            <p class="info" id="modeInfo">Script mode: Python is parsed on-chain (~600K-1.4M CU)</p>
+            <div id="bytecodePreview" style="display: none; margin-top: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin: 0;">Bytecode <span id="bytecodeSize" style="color: #14F195;"></span></label>
+                    <button id="compileBtn" style="padding: 4px 12px; font-size: 11px; background: #1a1a1a; border: 1px solid #14F195; color: #14F195; border-radius: 4px; cursor: pointer;">Compile</button>
+                </div>
+                <textarea id="bytecodeInput" placeholder="Click Compile to generate bytecode, or paste hex here..." style="min-height: 80px; font-size: 11px;"></textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Accounts</label>
+            <div class="accounts-section">
+                <div id="accountsList"></div>
+                <button class="add-account-btn" id="addAccountBtn">+ Add Account</button>
+                <p class="info" style="margin-top: 8px;">File: <code>open("/sol/0", "r")</code> opens account #0. CPI: <code>cpi(prog_idx, [(acct_idx, w, s), ...], data)</code></p>
+            </div>
+
+            <div class="scratchpad-section">
+                <div class="scratchpad-header">
+                    <span class="scratchpad-title">Owned Accounts (Persistent Storage)</span>
+                </div>
+                <div class="scratchpad-list" id="scratchpadList">
+                    <p class="info" style="margin: 0;">No owned accounts yet. Create one to use persistent storage.</p>
+                </div>
+                <div class="create-scratchpad-row">
+                    <span style="color: #888; font-size: 12px;">Size:</span>
+                    <input type="text" id="scratchpadSize" value="64" placeholder="64">
+                    <span style="color: #888; font-size: 12px;">bytes</span>
+                    <button class="create-scratchpad-btn" id="createScratchpadBtn" disabled>Create Account</button>
+                </div>
+                <p class="info" style="margin-top: 8px;">Creates an account owned by PikaPython. Access via <code>open("/sol/N", "r"|"w")</code></p>
+            </div>
+
+            <div class="scratchpad-section">
+                <div class="scratchpad-header">
+                    <span class="scratchpad-title">PDA (Program Derived Address)</span>
+                </div>
+                <div class="pda-input-row" style="display: flex; gap: 8px; margin-bottom: 8px;">
+                    <input type="text" id="pdaSeedsInput" placeholder="Seeds (comma separated): vault,user_pubkey" style="flex: 2;">
+                    <input type="text" id="pdaProgramInput" placeholder="Program ID (leave blank for PikaPython)" style="flex: 1;">
+                    <button class="create-scratchpad-btn" id="derivePdaBtn" style="white-space: nowrap;">Derive PDA</button>
+                </div>
+                <div id="pdaResult" class="scratchpad-item" style="display: none;">
+                    <span class="pubkey hoverable-pubkey" id="pdaAddress" data-pubkey="" title="Hover to see account data"></span>
+                    <span id="pdaSeeds" class="seeds"></span>
+                    <span class="bump" id="pdaBump"></span>
+                    <button class="copy-btn" id="copyPdaBtn">Copy</button>
+                    <button class="use-btn" id="usePdaBtn">Use</button>
+                </div>
+                <p class="info">Derive a PDA from seeds. Use <code>solana.find_program_address([seeds], program_id)</code> on-chain.</p>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" id="executeBtn" disabled>Execute</button>
+            <button class="btn-secondary" id="simulateBtn" disabled>Simulate</button>
+        </div>
+
+        <div class="output">
+            <div class="output-header">
+                <span class="output-title">Output</span>
+                <span class="output-meta" id="outputMeta"></span>
+            </div>
+            <div class="output-content" id="outputContent">Connect wallet and enter code to execute</div>
+        </div>
+
+        <div class="output" style="margin-top: 12px;">
+            <div class="output-header">
+                <span class="output-title">Logs</span>
+            </div>
+            <div class="output-content" id="logsContent" style="font-size: 12px; color: #888; max-height: 200px; overflow-y: auto;">No logs yet</div>
+        </div>
+
+        <div class="examples">
+            <h3>Packages</h3>
+            <div class="example-list" style="margin-bottom: 16px;">
+                <button class="package-btn" data-import="solana">solana<span class="tooltip">slot() - current slot
+epoch() - current epoch
+sha256(data) - SHA256 hash
+keccak256(data) - Keccak256 hash
+create_program_address(seeds, program_id)
+find_program_address(seeds, program_id)
+cpi(program_idx, accounts, data)</span></button>
+                <button class="package-btn" data-import="math">math<span class="tooltip">sin(x), cos(x), tan(x)
+sqrt(x) - square root
+pow(x, y) - power
+log(x) - natural log
+exp(x) - exponential
+floor(x), ceil(x)
+fabs(x) - absolute value
+pi, e - constants</span></button>
+                <button class="package-btn" data-import="time">time<span class="tooltip">time() - unix timestamp
+ctime(ts) - format timestamp
+asctime() - current time string
+gmtime(ts) - parse to struct
+localtime(ts) - parse to struct
+mktime(t) - struct to timestamp</span></button>
+                <button class="package-btn" data-import="json">json<span class="tooltip">dumps(obj) - serialize to JSON
+loads(str) - parse JSON string</span></button>
+                <button class="package-btn" data-import="struct">struct<span class="tooltip">pack(fmt, values) - pack to bytes
+unpack(fmt, data) - unpack bytes
+calcsize(fmt) - size of format
+Formats: b/B h/H i/I q/Q x
+< little-endian, > big-endian</span></button>
+                <button class="package-btn" data-import="base64">base64<span class="tooltip">b64encode(data) - encode to base64
+b64decode(str) - decode base64</span></button>
+                <button class="package-btn" data-import="base58">base58<span class="tooltip">b58encode(data) - encode to base58
+b58decode(str) - decode from base58</span></button>
+            </div>
+            <h3>Examples</h3>
+            <div class="example-list">
+                <button class="example-btn" data-code="print('Hello, Solana!')">Hello World</button>
+                <button class="example-btn" data-code="print(1 + 2 + 3)">Math</button>
+                <button class="example-btn" data-code="print(2.0 ** 10.0)">Float Power</button>
+                <button class="example-btn" data-code="for i in range(5):
+    print(i)">Loop</button>
+                <button class="example-btn" data-code="import solana
+print(solana.slot())">Get Slot</button>
+                <button class="example-btn" data-code="import solana
+h = solana.sha256(b'hello')
+print(len(h))">SHA256</button>
+                <button class="example-btn" data-code="import base58
+pk = base58.b58decode('11111111111111111111111111111111')
+print(len(pk))">Base58</button>
+                <button class="example-btn" data-code="import json
+d = {'a': 1, 'b': 2}
+print(json.dumps(d))">JSON</button>
+                <button class="example-btn" data-code="import math
+print(math.sqrt(2.0))
+print(math.pi)">Math Lib</button>
+                <button class="example-btn" data-code="import time
+print(time.time())">Timestamp</button>
+                <button class="example-btn" data-code="import struct
+data = struct.pack('<I', [42])
+print(len(data))">Struct</button>
+                <button class="example-btn" id="memoExample">CPI Memo</button>
+                <button class="example-btn" id="readWriteExample">Read/Write</button>
+                <button class="example-btn" id="evalExample">Eval</button>
+                <button class="example-btn" id="execExample">Exec</button>
+                <button class="example-btn" id="importExample">Import</button>
+                <button class="example-btn" id="pdaExample">PDA</button>
+                <button class="example-btn" id="createPdaExample">Create PDA</button>
+                <button class="example-btn" id="readPdaExample">Read PDA</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <a href="https://github.com/SolanaPython/SolanaPython" target="_blank">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+            GitHub
+        </a>
+        <a href="https://x.com/moonshiesty" target="_blank">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            @moonshiesty
+        </a>
+    </footer>
+
+    <!-- Global account tooltip -->
+    <div id="accountTooltip">
+        <div class="tooltip-header" id="tooltipHeader">Account Info</div>
+        <pre id="tooltipContent">Loading...</pre>
+    </div>
+
+    <script src="https://unpkg.com/@solana/web3.js@1.87.6/lib/index.iife.min.js"></script>
+    <script type="module">
+        import {
+            PhantomWalletAdapter,
+            SolflareWalletAdapter,
+            TorusWalletAdapter,
+            LedgerWalletAdapter,
+            CoinbaseWalletAdapter,
+        } from 'https://esm.sh/@solana/wallet-adapter-wallets@0.19.32';
+        import { getWallets } from 'https://esm.sh/@wallet-standard/app@1.0.1';
+
+        const { Connection, PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram } = solanaWeb3;
+
+        // Hidden API key for Helius
+        const HELIUS_API_KEY = '327f89e6-f0bb-4529-8d9d-17d0dd8a4907';
+
+        const RPC_URLS = {
+            'mainnet-beta': 'https://mainnet.helius-rpc.com',
+            'localhost': 'http://localhost:8899'
+        };
+
+        // Get RPC URL with API key injected if needed
+        function getRpcUrl() {
+            let url = rpcUrlInput.value.trim() || RPC_URLS[network];
+            // Inject API key for Helius URLs
+            if (url.includes('helius-rpc.com') && !url.includes('api-key=')) {
+                url += (url.includes('?') ? '&' : '?') + 'api-key=' + HELIUS_API_KEY;
+            }
+            return url;
+        }
+
+        // State
+        let wallet = null;
+        let walletAdapter = null;
+        let network = 'mainnet-beta';
+        let mode = 'script';
+
+        const EXECUTE_SCRIPT = 0x00;
+        const EXECUTE_BYTECODE = 0x02;
+
+        // WASM Compiler (Emscripten)
+        let pikaModule = null;
+
+        async function loadWasmCompiler() {
+            try {
+                const script = document.createElement('script');
+                script.src = 'pika_compile.js';
+                document.head.appendChild(script);
+
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                });
+
+                pikaModule = await PikaCompiler();
+                console.log('WASM compiler loaded');
+                return true;
+            } catch (err) {
+                console.error('Failed to load WASM compiler:', err);
+                return false;
+            }
+        }
+
+        function wasmCompile(source) {
+            if (!pikaModule) {
+                throw new Error('WASM compiler not loaded');
+            }
+
+            const result = pikaModule.ccall('compile_python', 'number', ['string'], [source]);
+
+            if (result !== 0) {
+                throw new Error(`Compilation failed (error ${result})`);
+            }
+
+            const outputPtr = pikaModule.ccall('get_output_ptr', 'number', [], []);
+            const outputSize = pikaModule.ccall('get_output_size', 'number', [], []);
+
+            if (outputSize === 0) {
+                throw new Error('Compilation produced no output');
+            }
+
+            const output = new Uint8Array(outputSize);
+            output.set(pikaModule.HEAPU8.subarray(outputPtr, outputPtr + outputSize));
+
+            return output;
+        }
+
+        loadWasmCompiler();
+
+        // Initialize wallet adapters (legacy adapters)
+        const legacyWallets = [
+            new PhantomWalletAdapter(),
+            new SolflareWalletAdapter(),
+            new CoinbaseWalletAdapter(),
+            new TorusWalletAdapter(),
+            new LedgerWalletAdapter(),
+        ];
+
+        // Detect standard wallets (like MetaMask Solana)
+        let wallets = [...legacyWallets];
+        try {
+            const { get } = getWallets();
+            const standardWallets = get();
+            // Add standard wallets that aren't already in legacy list
+            for (const sw of standardWallets) {
+                const isLegacy = legacyWallets.some(lw =>
+                    lw.name.toLowerCase().includes(sw.name.toLowerCase()) ||
+                    sw.name.toLowerCase().includes(lw.name.toLowerCase())
+                );
+                if (!isLegacy && sw.features && sw.features['solana:signTransaction']) {
+                    wallets.push({
+                        name: sw.name,
+                        icon: sw.icon,
+                        readyState: 'Installed',
+                        publicKey: null,
+                        connected: false,
+                        _standardWallet: sw,
+                        connect: async function() {
+                            const connectFeature = sw.features['standard:connect'];
+                            if (connectFeature) {
+                                const result = await connectFeature.connect();
+                                if (result.accounts && result.accounts.length > 0) {
+                                    this.publicKey = new PublicKey(result.accounts[0].address);
+                                    this.connected = true;
+                                    return;
+                                }
+                            }
+                            throw new Error('Failed to connect');
+                        },
+                        disconnect: async function() {
+                            const disconnectFeature = sw.features['standard:disconnect'];
+                            if (disconnectFeature) {
+                                await disconnectFeature.disconnect();
+                            }
+                            this.publicKey = null;
+                            this.connected = false;
+                        },
+                        signTransaction: async function(tx) {
+                            const signFeature = sw.features['solana:signTransaction'];
+                            if (signFeature) {
+                                const serialized = tx.serializeMessage();
+                                const result = await signFeature.signTransaction({
+                                    transaction: serialized,
+                                    account: sw.accounts[0],
+                                    chain: 'solana:mainnet'
+                                });
+                                tx.addSignature(this.publicKey, result.signature);
+                                return tx;
+                            }
+                            throw new Error('Sign not supported');
+                        },
+                        on: function() {}
+                    });
+                }
+            }
+        } catch (e) {
+            console.log('Standard wallet detection:', e.message);
+        }
+
+        // DOM elements
+        const programIdInput = document.getElementById('programId');
+        const rpcUrlInput = document.getElementById('rpcUrl');
+        const codeInput = document.getElementById('code');
+        const codeLabel = document.getElementById('codeLabel');
+        const modeInfo = document.getElementById('modeInfo');
+        const walletBtn = document.getElementById('walletBtn');
+        const simulateBtn = document.getElementById('simulateBtn');
+        const executeBtn = document.getElementById('executeBtn');
+        const outputContent = document.getElementById('outputContent');
+        const outputMeta = document.getElementById('outputMeta');
+        const logsContent = document.getElementById('logsContent');
+        const bytecodePreview = document.getElementById('bytecodePreview');
+        const bytecodeSize = document.getElementById('bytecodeSize');
+        const bytecodeInput = document.getElementById('bytecodeInput');
+        const compileBtn = document.getElementById('compileBtn');
+        const accountsList = document.getElementById('accountsList');
+        const addAccountBtn = document.getElementById('addAccountBtn');
+        const scratchpadList = document.getElementById('scratchpadList');
+        const scratchpadSizeInput = document.getElementById('scratchpadSize');
+        const createScratchpadBtn = document.getElementById('createScratchpadBtn');
+        const pdaSeedsInput = document.getElementById('pdaSeedsInput');
+        const pdaProgramInput = document.getElementById('pdaProgramInput');
+        const derivePdaBtn = document.getElementById('derivePdaBtn');
+        const pdaResult = document.getElementById('pdaResult');
+        const pdaAddress = document.getElementById('pdaAddress');
+        const pdaBump = document.getElementById('pdaBump');
+        const usePdaBtn = document.getElementById('usePdaBtn');
+        const copyPdaBtn = document.getElementById('copyPdaBtn');
+
+        // PDA state
+        let currentPda = null;
+
+        // Accounts management
+        let accounts = [];
+
+        function renderAccounts() {
+            accountsList.innerHTML = '';
+
+            // Always show account #0 as signer slot
+            const signerRow = document.createElement('div');
+            signerRow.className = 'account-row';
+            if (wallet) {
+                signerRow.innerHTML = `
+                    <span style="color: #666; font-size: 11px; width: 20px;">#0</span>
+                    <input type="text" value="${wallet.toString()}" disabled style="color: #14F195; background: #0a0a0a;">
+                    <label><input type="checkbox" disabled> Write</label>
+                    <label><input type="checkbox" checked disabled> Sign</label>
+                    <span style="width: 24px;"></span>
+                `;
+            } else {
+                signerRow.innerHTML = `
+                    <span style="color: #666; font-size: 11px; width: 20px;">#0</span>
+                    <input type="text" value="" placeholder="Connect wallet" disabled style="color: #888; background: #0a0a0a;">
+                    <label><input type="checkbox" disabled> Write</label>
+                    <label><input type="checkbox" checked disabled> Sign</label>
+                    <span style="width: 24px;"></span>
+                `;
+            }
+            accountsList.appendChild(signerRow);
+
+            // Render additional accounts (starting from index 1)
+            accounts.forEach((acc, idx) => {
+                const row = document.createElement('div');
+                row.className = 'account-row';
+                row.innerHTML = `
+                    <span style="color: #666; font-size: 11px; width: 20px;">#${idx + 1}</span>
+                    <input type="text" value="${acc.pubkey}" placeholder="Public Key (base58)" data-idx="${idx}" data-field="pubkey">
+                    <label><input type="checkbox" ${acc.writable ? 'checked' : ''} data-idx="${idx}" data-field="writable"> Write</label>
+                    <label><input type="checkbox" ${acc.signer ? 'checked' : ''} data-idx="${idx}" data-field="signer"> Sign</label>
+                    <button class="remove-btn" data-idx="${idx}">&times;</button>
+                `;
+                accountsList.appendChild(row);
+            });
+
+            // Event listeners
+            accountsList.querySelectorAll('input[type="text"]:not([disabled])').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    accounts[e.target.dataset.idx].pubkey = e.target.value;
+                });
+            });
+            accountsList.querySelectorAll('input[type="checkbox"]:not([disabled])').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    accounts[e.target.dataset.idx][e.target.dataset.field] = e.target.checked;
+                });
+            });
+            accountsList.querySelectorAll('.remove-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    accounts.splice(parseInt(e.target.dataset.idx), 1);
+                    renderAccounts();
+                });
+            });
+        }
+
+        addAccountBtn.addEventListener('click', () => {
+            accounts.push({ pubkey: '', writable: false, signer: false });
+            renderAccounts();
+        });
+
+        function setAccounts(newAccounts) {
+            // Wallet is always #0 (rendered separately), these are additional accounts
+            accounts = newAccounts;
+            localStorage.setItem('pikapython_accounts', JSON.stringify(accounts));
+            renderAccounts();
+        }
+
+        // Scratchpad management - load from getProgramAccounts
+        let scratchpads = [];
+        let scratchpadContents = {}; // Cache for account contents
+
+        async function loadScratchpads() {
+            const programIdStr = programIdInput.value.trim();
+            if (!programIdStr) return;
+
+            scratchpadList.innerHTML = '<p class="info" style="margin: 0;"><span class="spinner"></span> Loading accounts...</p>';
+
+            try {
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const programId = new PublicKey(programIdStr);
+
+                const accounts = await connection.getProgramAccounts(programId, {
+                    commitment: 'confirmed'
+                });
+
+                scratchpads = accounts.map(({ pubkey, account }) => ({
+                    pubkey: pubkey.toString(),
+                    size: account.data.length,
+                    data: account.data
+                }));
+
+                // Cache contents
+                scratchpads.forEach(sp => {
+                    scratchpadContents[sp.pubkey] = sp.data;
+                });
+
+                renderScratchpads();
+            } catch (err) {
+                console.error('Failed to load owned accounts:', err);
+                scratchpadList.innerHTML = '<p class="info" style="margin: 0; color: #f88;">Failed to load accounts</p>';
+            }
+        }
+
+        function getContentPreview(data) {
+            if (!data || data.length === 0) return { text: '(empty)', hex: '' };
+
+            // Decode as UTF-8 text (replace unprintable with dots)
+            const text = new TextDecoder('utf-8', { fatal: false }).decode(data);
+            const displayText = text.replace(/[^\x20-\x7E\n\r\t]/g, '·').slice(0, 200);
+
+            // Hex representation
+            const hex = Array.from(data.slice(0, 64)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+
+            return {
+                text: displayText + (text.length > 200 ? '...' : ''),
+                hex: hex + (data.length > 64 ? '...' : '')
+            };
+        }
+
+        function renderScratchpads() {
+            if (scratchpads.length === 0) {
+                scratchpadList.innerHTML = '<p class="info" style="margin: 0;">No owned accounts found. Create one to use persistent storage.</p>';
+                return;
+            }
+
+            scratchpadList.innerHTML = '';
+            scratchpads.forEach((sp, idx) => {
+                const item = document.createElement('div');
+                item.className = 'scratchpad-item';
+                item.innerHTML = `
+                    <span class="pubkey hoverable-pubkey" data-pubkey="${sp.pubkey}">${sp.pubkey.slice(0, 8)}...${sp.pubkey.slice(-8)}</span>
+                    <span class="size">${sp.size} bytes</span>
+                    <button class="copy-btn" data-pubkey="${sp.pubkey}">Copy</button>
+                    <button class="use-btn" data-pubkey="${sp.pubkey}" data-idx="${idx}">Use</button>
+                `;
+                scratchpadList.appendChild(item);
+            });
+
+            // Event listeners for use buttons
+            scratchpadList.querySelectorAll('.use-btn[data-pubkey]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const pubkey = btn.dataset.pubkey;
+                    accounts.push({ pubkey, writable: true, signer: false });
+                    renderAccounts();
+                    outputContent.textContent = `Added owned account as writable. Access via open("/sol/${accounts.length - 1}", "r"|"w")`;
+                    outputContent.className = 'output-content success';
+                });
+            });
+
+            // Event listeners for copy buttons
+            scratchpadList.querySelectorAll('.copy-btn[data-pubkey]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(btn.dataset.pubkey);
+                    const originalText = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => btn.textContent = originalText, 1000);
+                });
+            });
+
+            // Note: Hover tooltips handled by global event delegation
+        }
+
+        // Initialize on page load
+        renderAccounts();
+        loadScratchpads();
+
+        // Create scratchpad account
+        createScratchpadBtn.addEventListener('click', async () => {
+            const programIdStr = programIdInput.value.trim();
+            if (!programIdStr || !wallet) {
+                outputContent.textContent = 'Please connect wallet and set program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            const size = parseInt(scratchpadSizeInput.value) || 64;
+            if (size < 1 || size > 10240) {
+                outputContent.textContent = 'Size must be between 1 and 10240 bytes';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            createScratchpadBtn.disabled = true;
+            createScratchpadBtn.textContent = 'Creating...';
+            outputContent.innerHTML = '<span class="spinner"></span>Creating owned account...';
+            outputContent.className = 'output-content pending';
+
+            try {
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const programId = new PublicKey(programIdStr);
+
+                // Generate new keypair for the account
+                const accountKeypair = solanaWeb3.Keypair.generate();
+                const rentExemptBalance = await connection.getMinimumBalanceForRentExemption(size);
+
+                // Create the account owned by the program
+                const createIx = solanaWeb3.SystemProgram.createAccount({
+                    fromPubkey: wallet,
+                    newAccountPubkey: accountKeypair.publicKey,
+                    lamports: rentExemptBalance,
+                    space: size,
+                    programId: programId,
+                });
+
+                const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+                const transaction = new Transaction();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = wallet;
+                transaction.add(createIx);
+
+                // Partial sign with new account keypair
+                transaction.partialSign(accountKeypair);
+
+                // Get wallet signature
+                outputContent.innerHTML = '<span class="spinner"></span>Waiting for wallet signature...';
+                const signedTx = await walletAdapter.signTransaction(transaction);
+
+                outputContent.innerHTML = '<span class="spinner"></span>Sending transaction...';
+                const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+                    skipPreflight: false,
+                    preflightCommitment: 'confirmed'
+                });
+
+                outputContent.innerHTML = '<span class="spinner"></span>Confirming...';
+                await connection.confirmTransaction({
+                    signature,
+                    blockhash,
+                    lastValidBlockHeight
+                }, 'confirmed');
+
+                const newPubkey = accountKeypair.publicKey.toString();
+
+                // Add to accounts list
+                accounts.push({ pubkey: newPubkey, writable: true, signer: false });
+                renderAccounts();
+
+                // Reload scratchpads from chain
+                await loadScratchpads();
+
+                const rentSol = (rentExemptBalance / 1e9).toFixed(6);
+                outputContent.textContent = `Account created!\n\nPubkey: ${newPubkey}\nSize: ${size} bytes\nRent: ${rentSol} SOL\nTx: ${signature}\n\nAdded as account #${accounts.length - 1}. Access via open("/sol/${accounts.length - 1}", "r"|"w")`;
+                outputContent.className = 'output-content success';
+
+            } catch (err) {
+                console.error('Account creation error:', err);
+                outputContent.textContent = 'Failed to create account: ' + (err.message || String(err));
+                outputContent.className = 'output-content error';
+            } finally {
+                createScratchpadBtn.disabled = !wallet;
+                createScratchpadBtn.textContent = 'Create Account';
+            }
+        });
+
+        // PDA derivation
+        derivePdaBtn.addEventListener('click', () => {
+            const seedsStr = pdaSeedsInput.value.trim();
+            if (!seedsStr) {
+                outputContent.textContent = 'Please enter seeds (comma separated)';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            // Parse seeds - each seed can be:
+            // - A plain string: "vault" -> Buffer.from("vault")
+            // - A pubkey (base58): looks like base58 address -> decode and use bytes
+            const seedStrings = seedsStr.split(',').map(s => s.trim()).filter(s => s);
+            const seeds = [];
+
+            for (const s of seedStrings) {
+                // Check if it looks like a pubkey (32 bytes base58)
+                if (s.length >= 32 && s.length <= 44 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(s)) {
+                    try {
+                        const pk = new PublicKey(s);
+                        seeds.push(pk.toBuffer());
+                        continue;
+                    } catch {
+                        // Not a valid pubkey, treat as string
+                    }
+                }
+                // Treat as string seed
+                seeds.push(new TextEncoder().encode(s));
+            }
+
+            // Get program ID (default to PikaPython program)
+            let programIdStr = pdaProgramInput.value.trim() || programIdInput.value.trim();
+            if (!programIdStr) {
+                outputContent.textContent = 'Please enter a program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            let programId;
+            try {
+                programId = new PublicKey(programIdStr);
+            } catch {
+                outputContent.textContent = 'Invalid program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            try {
+                const [pda, bump] = PublicKey.findProgramAddressSync(seeds, programId);
+                const pdaStr = pda.toString();
+                currentPda = { address: pdaStr, bump, seeds: seedStrings, programId: programIdStr };
+
+                pdaAddress.textContent = `${pdaStr.slice(0, 8)}...${pdaStr.slice(-8)}`;
+                pdaAddress.dataset.pubkey = pdaStr;
+                pdaBump.textContent = `bump: ${bump}`;
+                document.getElementById('pdaSeeds').textContent = `(${seedStrings.join(', ')})`;
+                pdaResult.style.display = 'flex';
+
+                outputContent.textContent = `PDA derived:\n${pdaStr}\nBump: ${bump}`;
+                outputContent.className = 'output-content success';
+            } catch (err) {
+                outputContent.textContent = 'Failed to derive PDA: ' + err.message;
+                outputContent.className = 'output-content error';
+                pdaResult.style.display = 'none';
+                currentPda = null;
+            }
+        });
+
+        // Add PDA to accounts list
+        usePdaBtn.addEventListener('click', () => {
+            if (!currentPda) return;
+
+            // Add to accounts list as writable
+            accounts.push({ pubkey: currentPda.address, writable: true, signer: false });
+            renderAccounts();
+
+            outputContent.textContent = `Added PDA to accounts as #${accounts.length} (writable).\nAccess via open("/sol/${accounts.length}", "r"|"w")`;
+            outputContent.className = 'output-content success';
+        });
+
+        // Copy PDA address to clipboard
+        copyPdaBtn.addEventListener('click', async () => {
+            if (!currentPda) return;
+
+            try {
+                await navigator.clipboard.writeText(currentPda.address);
+                const originalText = copyPdaBtn.textContent;
+                copyPdaBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyPdaBtn.textContent = originalText;
+                }, 1500);
+            } catch (err) {
+                outputContent.textContent = 'Failed to copy: ' + err.message;
+                outputContent.className = 'output-content error';
+            }
+        });
+
+        // Compile function
+        function doCompile() {
+            if (!pikaModule) {
+                bytecodeInput.value = 'WASM compiler not loaded yet...';
+                bytecodeInput.style.color = '#f14668';
+                bytecodeSize.textContent = '';
+                return;
+            }
+
+            const code = codeInput.value;
+            if (!code.trim()) {
+                bytecodeInput.value = '';
+                bytecodeSize.textContent = '';
+                return;
+            }
+
+            try {
+                const bytecode = wasmCompile(code);
+                const hex = Array.from(bytecode).map(b => b.toString(16).padStart(2, '0')).join('');
+                bytecodeInput.value = hex;
+                bytecodeInput.style.color = '#e0e0e0';
+                bytecodeSize.textContent = `(${bytecode.length} bytes)`;
+            } catch (err) {
+                bytecodeInput.value = 'Compilation error: ' + err.message;
+                bytecodeInput.style.color = '#f14668';
+                bytecodeSize.textContent = '';
+            }
+        }
+
+        // Compile button handler
+        compileBtn.addEventListener('click', doCompile);
+
+        // Reset bytecode input color when user types/pastes
+        bytecodeInput.addEventListener('input', () => {
+            bytecodeInput.style.color = '#e0e0e0';
+            // Update size display
+            const hex = bytecodeInput.value.trim().replace(/^0x/, '').replace(/\s/g, '');
+            if (hex && /^[0-9a-fA-F]*$/.test(hex) && hex.length % 2 === 0) {
+                bytecodeSize.textContent = `(${hex.length / 2} bytes)`;
+            } else {
+                bytecodeSize.textContent = '';
+            }
+        });
+
+        // Network selection
+        document.querySelectorAll('.network-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.network-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                network = btn.dataset.network;
+                rpcUrlInput.value = RPC_URLS[network];
+                loadScratchpads(); // Reload accounts for new network
+            });
+        });
+
+        // Reload scratchpads when RPC URL changes
+        rpcUrlInput.addEventListener('change', () => {
+            loadScratchpads();
+        });
+
+        // Reload scratchpads when program ID changes
+        programIdInput.addEventListener('change', () => {
+            loadScratchpads();
+        });
+
+        // Mode selection
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                mode = btn.dataset.mode;
+
+                if (mode === 'script') {
+                    codeLabel.textContent = 'Python Code';
+                    codeInput.placeholder = "print('Hello, Solana!')";
+                    modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+                    bytecodePreview.style.display = 'none';
+                } else if (mode === 'compile') {
+                    codeLabel.textContent = 'Python Code';
+                    codeInput.placeholder = "print('Hello, Solana!')";
+                    modeInfo.textContent = 'Bytecode mode: Compile off-chain, execute on-chain (~20K-100K CU)';
+                    bytecodePreview.style.display = 'block';
+                }
+            });
+        });
+
+        // Example buttons
+        document.querySelectorAll('.example-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                codeInput.value = btn.dataset.code;
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+                mode = 'script';
+                codeLabel.textContent = 'Python Code';
+                modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+                bytecodePreview.style.display = 'none';
+            });
+        });
+
+        // Package buttons
+        document.querySelectorAll('.package-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const pkg = btn.dataset.import;
+                const importStmt = `import ${pkg}`;
+                const currentCode = codeInput.value;
+
+                if (!currentCode.includes(importStmt)) {
+                    if (currentCode.trim()) {
+                        codeInput.value = importStmt + '\n' + currentCode;
+                    } else {
+                        codeInput.value = importStmt;
+                    }
+                }
+            });
+        });
+
+        // CPI Memo example - safe for testing
+        document.getElementById('memoExample').addEventListener('click', () => {
+            const memoCode = `# CPI to Memo Program
+# Required accounts:
+#   #0: Signer
+#   #1: Memo Program
+
+# Message to log on-chain
+msg = b'Hello from PikaPython!'
+
+# CPI to Memo Program (account #1)
+# Account metas: [(idx, writable, signer), ...]
+cpi(1, [(0, 0, 1)], msg)
+
+print('Memo sent!')`;
+
+            codeInput.value = memoCode;
+
+            // Switch to bytecode mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="compile"]').classList.add('active');
+            mode = 'compile';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Bytecode mode: Compile off-chain, execute on-chain (~20K-100K CU)';
+            bytecodePreview.style.display = 'block';
+
+            // Set up accounts for memo
+            const walletAddr = wallet ? wallet.toString() : '';
+            setAccounts([
+                { pubkey: walletAddr, writable: false, signer: true },   // #0: Signer
+                { pubkey: 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr', writable: false, signer: false }  // #1: Memo Program
+            ]);
+
+            // Pre-fill with native-compiled bytecode (WASM compiler has issues with some syntax)
+            bytecodeInput.value = '0f70796f7100000034000000009401000004180010851c001015000030051e0030051e0030051c00200200001022000010011800000220001083240000022f00350000000048656c6c6f2066726f6d2050696b61507974686f6e21006d73670031003000637069004d656d6f2073656e7421007072696e7400';
+            bytecodeSize.textContent = '(121 bytes)';
+        });
+
+        // Read/Write example
+        document.getElementById('readWriteExample').addEventListener('click', () => {
+            const code = `# Read/Write to account storage
+# Account #0 = wallet (signer), #1 = owned account (writable)
+
+# Write data
+f = open("/sol/1", "w")
+f.write("Hello Solana!")
+f.close()
+
+# Read it back
+f = open("/sol/1", "r")
+data = f.read(13)
+f.close()
+print(data)`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Set up accounts - wallet #0, scratchpad #1
+            if (scratchpads.length > 0) {
+                setAccounts([
+                    { pubkey: scratchpads[0].pubkey, writable: true, signer: false }
+                ]);
+                outputContent.textContent = `Wallet #0, Owned Account #1 (writable). Click Execute.`;
+            } else {
+                setAccounts([]);
+                outputContent.textContent = `Create an owned account first.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // Eval example - evaluate expression from storage
+        document.getElementById('evalExample').addEventListener('click', () => {
+            const code = `# Eval: evaluate expression from storage
+# Account #0 = wallet (signer), #1 = owned account (writable)
+
+# Write an expression to storage
+f = open("/sol/1", "w")
+f.write("2 + 3 * 4")
+f.close()
+
+# Read and evaluate it
+f = open("/sol/1", "r")
+expr = f.read(9)
+f.close()
+
+result = eval(expr)
+print(result)`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Set up accounts - wallet #0, scratchpad #1
+            if (scratchpads.length > 0) {
+                setAccounts([
+                    { pubkey: scratchpads[0].pubkey, writable: true, signer: false }
+                ]);
+                outputContent.textContent = `Wallet #0, Owned Account #1 (writable). Click Execute.`;
+            } else {
+                setAccounts([]);
+                outputContent.textContent = `Create an owned account first.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // Exec example - write and execute code from storage
+        document.getElementById('execExample').addEventListener('click', () => {
+            const code = `# Exec: write code to storage, then import it
+# Account #0 = wallet (signer), #1 = owned account (writable)
+
+# Write Python code to storage
+f = open("/sol/1", "w")
+f.write("x = 42")
+f.close()
+
+# Import and execute it as a module
+import sol_1
+
+# Access variables from the module
+print(sol_1.x)`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Set up accounts - wallet #0, scratchpad #1
+            if (scratchpads.length > 0) {
+                setAccounts([
+                    { pubkey: scratchpads[0].pubkey, writable: true, signer: false }
+                ]);
+                outputContent.textContent = `Wallet #0, Owned Account #1 (writable). Click Execute.`;
+            } else {
+                setAccounts([]);
+                outputContent.textContent = `Create an owned account first.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // Import example - import code from account as a module
+        document.getElementById('importExample').addEventListener('click', () => {
+            const code = `# Import: load Python code from account as a module
+# Account #0 = wallet (signer), #1 = owned account (writable)
+
+# First, write some Python code to storage
+f = open("/sol/1", "w")
+f.write("def greet(name):\\n    return 'Hello ' + name")
+f.close()
+
+# Import the account as a module
+import sol_1
+
+# Call the function from the imported module
+msg = sol_1.greet("Solana")
+print(msg)`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Set up accounts - wallet #0, scratchpad #1
+            if (scratchpads.length > 0) {
+                setAccounts([
+                    { pubkey: scratchpads[0].pubkey, writable: true, signer: false }
+                ]);
+                outputContent.textContent = `Wallet #0, Owned Account #1 (writable). Click Execute.`;
+            } else {
+                setAccounts([]);
+                outputContent.textContent = `Create an owned account first.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // Create PDA example - create a PDA account via CPI
+        document.getElementById('createPdaExample').addEventListener('click', () => {
+            const code = `# Create PDA Account via CPI to System Program
+# Accounts needed:
+#   #0: Wallet (signer, pays rent)
+#   #1: System Program (11111111111111111111111111111111)
+#   #2: PDA account (will be created)
+import solana
+import struct
+
+# Derive the PDA
+seeds = [b"vault"]
+pid = solana.program_id()
+pda, bump = solana.find_program_address(seeds, pid)
+
+print("PDA bump: " + str(bump))
+
+# Build CreateAccount instruction (52 bytes)
+# Format: u32(0) + u64(lamports) + u64(space) + 32-byte owner
+# Rent exemption for 64 bytes ≈ 1,336,320 lamports
+data = struct.pack("<I", [0])           # instruction = 0 (CreateAccount)
+data = data + struct.pack("<Q", [1500000])  # lamports (rent exempt)
+data = data + struct.pack("<Q", [64])   # space
+data = data + pid                       # owner = this program
+
+# Account indices for CPI: (idx, writable, signer)
+accounts = [(0, 1, 1), (2, 1, 1)]
+signer_seeds = [[b"vault", struct.pack("B", [bump])]]
+
+result = solana.invoke_signed(1, accounts, data, signer_seeds)
+print("CPI result: " + str(result))`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Derive the PDA locally and set up accounts
+            const programIdStr = programIdInput.value.trim();
+            try {
+                const programId = new PublicKey(programIdStr);
+                const [pda, bump] = PublicKey.findProgramAddressSync(
+                    [new TextEncoder().encode("vault")],
+                    programId
+                );
+
+                setAccounts([
+                    { pubkey: '11111111111111111111111111111111', writable: false, signer: false },
+                    { pubkey: pda.toString(), writable: true, signer: false }
+                ]);
+                outputContent.textContent = `Create PDA example ready.\n\nPDA: ${pda.toString()}\nBump: ${bump}\n\nAccounts:\n  #0: Wallet (signer)\n  #1: System Program\n  #2: PDA (writable)\n\nClick Execute to create the PDA account.`;
+            } catch (err) {
+                setAccounts([
+                    { pubkey: '11111111111111111111111111111111', writable: false, signer: false }
+                ]);
+                outputContent.textContent = `Create PDA example ready. Derive PDA above to add it to accounts.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // PDA example - derive and display PDA on-chain
+        document.getElementById('pdaExample').addEventListener('click', () => {
+            const code = `# PDA: Derive Program Derived Address on-chain
+import solana
+
+# Derive a PDA from seeds
+# seeds = list of bytes/strings
+# program_id = bytes (32 bytes pubkey)
+
+# Example: derive a "vault" PDA
+seeds = [b"vault"]
+program_id = solana.program_id()  # current program
+
+pda, bump = solana.find_program_address(seeds, program_id)
+print("PDA: " + str(len(pda)) + " bytes")
+print("Bump: " + str(bump))`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            setAccounts([]);
+            outputContent.textContent = 'PDA example ready. Click Simulate to derive a PDA on-chain.\n\nTip: Use the PDA section above to derive PDAs locally before execution.';
+            outputContent.className = 'output-content';
+        });
+
+        // Read PDA example - read data from a PDA account
+        document.getElementById('readPdaExample').addEventListener('click', () => {
+            const code = `# Read PDA Account Data
+# Accounts needed:
+#   #0: Wallet (signer)
+#   #1: PDA account (readable)
+import solana
+
+# Derive the PDA to verify we're reading the right account
+seeds = [b"vault"]
+pid = solana.program_id()
+pda, bump = solana.find_program_address(seeds, pid)
+print("PDA bump: " + str(bump))
+
+# Read data from account #1 (the PDA)
+f = open("/sol/1", "r")
+data = f.read(64)  # Read up to 64 bytes
+f.close()
+
+# Display raw bytes length
+print("Data length: " + str(len(data)))
+print("Data: " + data)`;
+
+            codeInput.value = code;
+
+            // Switch to script mode
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
+            mode = 'script';
+            codeLabel.textContent = 'Python Code';
+            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
+            bytecodePreview.style.display = 'none';
+
+            // Derive the PDA locally and set up accounts
+            const programIdStr = programIdInput.value.trim();
+            try {
+                const programId = new PublicKey(programIdStr);
+                const [pda, bump] = PublicKey.findProgramAddressSync(
+                    [new TextEncoder().encode("vault")],
+                    programId
+                );
+
+                setAccounts([
+                    { pubkey: pda.toString(), writable: false, signer: false }
+                ]);
+                outputContent.textContent = `Read PDA example ready.\n\nPDA: ${pda.toString()}\nBump: ${bump}\n\nAccounts:\n  #0: Wallet (signer)\n  #1: PDA (readable)\n\nClick Execute to read the PDA account data.`;
+            } catch (err) {
+                setAccounts([]);
+                outputContent.textContent = `Read PDA example ready. Derive PDA above to add it to accounts.`;
+            }
+            outputContent.className = 'output-content';
+        });
+
+        // Shared account tooltip system
+        const accountTooltip = document.getElementById('accountTooltip');
+        const tooltipHeader = document.getElementById('tooltipHeader');
+        const tooltipContent = document.getElementById('tooltipContent');
+        let tooltipHoverTimeout = null;
+        let currentTooltipTarget = null;
+
+        async function showAccountTooltip(pubkeyStr, x, y) {
+            tooltipContent.textContent = 'Loading...';
+            tooltipHeader.textContent = pubkeyStr.slice(0, 16) + '...' + pubkeyStr.slice(-8);
+
+            // Position tooltip
+            accountTooltip.style.left = Math.min(x, window.innerWidth - 640) + 'px';
+            accountTooltip.style.top = Math.min(y + 20, window.innerHeight - 340) + 'px';
+            accountTooltip.style.display = 'block';
+
+            try {
+                const connection = new Connection(getRpcUrl(), 'confirmed');
+                const pubkey = new PublicKey(pubkeyStr);
+                const accountInfo = await connection.getAccountInfo(pubkey);
+
+                if (!accountInfo) {
+                    tooltipContent.textContent = 'Account does not exist yet.\n\nUse "Create PDA" to create it.';
+                } else {
+                    const lines = [
+                        `Owner: ${accountInfo.owner.toString()}`,
+                        `Lamports: ${accountInfo.lamports.toLocaleString()}`,
+                        `Rent: ~${(accountInfo.lamports / 1e9).toFixed(6)} SOL`,
+                        `Data: ${accountInfo.data.length} bytes`,
+                        ''
+                    ];
+
+                    // Show hex dump of data
+                    const data = accountInfo.data;
+                    if (data.length > 0) {
+                        for (let i = 0; i < Math.min(data.length, 128); i += 16) {
+                            const hex = Array.from(data.slice(i, i + 16))
+                                .map(b => b.toString(16).padStart(2, '0'))
+                                .join(' ');
+                            const ascii = Array.from(data.slice(i, i + 16))
+                                .map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.')
+                                .join('');
+                            lines.push(`${i.toString(16).padStart(4, '0')}: ${hex.padEnd(48)} ${ascii}`);
+                        }
+                        if (data.length > 128) {
+                            lines.push(`... (${data.length - 128} more bytes)`);
+                        }
+                    } else {
+                        lines.push('(empty)');
+                    }
+                    tooltipContent.textContent = lines.join('\n');
+                }
+            } catch (err) {
+                tooltipContent.textContent = `Error: ${err.message}`;
+            }
+        }
+
+        function hideAccountTooltip() {
+            tooltipHoverTimeout = setTimeout(() => {
+                accountTooltip.style.display = 'none';
+                currentTooltipTarget = null;
+            }, 200);
+        }
+
+        // Tooltip stays visible when hovering over it
+        accountTooltip.addEventListener('mouseenter', () => {
+            if (tooltipHoverTimeout) {
+                clearTimeout(tooltipHoverTimeout);
+                tooltipHoverTimeout = null;
+            }
+        });
+
+        accountTooltip.addEventListener('mouseleave', () => {
+            accountTooltip.style.display = 'none';
+            currentTooltipTarget = null;
+        });
+
+        // Global hover handler for all .hoverable-pubkey elements (PDA and owned accounts)
+        document.addEventListener('mouseover', function(e) {
+            const target = e.target.closest('.hoverable-pubkey');
+            if (target && target.dataset.pubkey) {
+                currentTooltipTarget = target;
+                showAccountTooltip(target.dataset.pubkey, e.clientX, e.clientY);
+            }
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            const target = e.target.closest('.hoverable-pubkey');
+            if (target) {
+                hideAccountTooltip();
+            }
+        });
+
+        // Wallet modal
+        function createWalletModal() {
+            const overlay = document.createElement('div');
+            overlay.id = 'walletModalOverlay';
+            overlay.style.cssText = `
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+            `;
+
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                background: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 12px;
+                padding: 24px;
+                width: 100%;
+                max-width: 400px;
+                max-height: 80vh;
+                overflow-y: auto;
+            `;
+
+            const header = document.createElement('div');
+            header.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            `;
+            header.innerHTML = `
+                <span style="font-size: 18px; font-weight: 600; color: #fff;">Select Wallet</span>
+                <button id="closeWalletModal" style="background: none; border: none; color: #666; font-size: 24px; cursor: pointer; padding: 0;">&times;</button>
+            `;
+
+            const list = document.createElement('div');
+            list.id = 'walletList';
+            list.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+
+            modal.appendChild(header);
+            modal.appendChild(list);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            document.getElementById('closeWalletModal').addEventListener('click', () => {
+                overlay.style.display = 'none';
+            });
+
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) overlay.style.display = 'none';
+            });
+
+            return overlay;
+        }
+
+        const walletModalOverlay = createWalletModal();
+
+        function showWalletModal() {
+            const list = document.getElementById('walletList');
+            list.innerHTML = '';
+
+            wallets.forEach(adapter => {
+                const detected = adapter.readyState === 'Installed' || adapter.readyState === 'Loadable';
+
+                const item = document.createElement('div');
+                item.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 14px;
+                    background: #0a0a0a;
+                    border: 1px solid #333;
+                    border-radius: 8px;
+                    cursor: ${detected ? 'pointer' : 'not-allowed'};
+                    opacity: ${detected ? '1' : '0.4'};
+                    transition: all 0.2s;
+                `;
+
+                const iconUrl = adapter.icon || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgZmlsbD0iIzMzMyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiByeD0iOCIvPjwvc3ZnPg==';
+
+                item.innerHTML = `
+                    <img src="${iconUrl}" alt="${adapter.name}" style="width: 40px; height: 40px; border-radius: 8px;">
+                    <div style="flex: 1;">
+                        <div style="font-size: 14px; font-weight: 500; color: #fff;">${adapter.name}</div>
+                        <div style="font-size: 11px; color: ${detected ? '#14F195' : '#666'}; margin-top: 2px;">
+                            ${detected ? 'Detected' : 'Not installed'}
+                        </div>
+                    </div>
+                `;
+
+                if (detected) {
+                    item.addEventListener('mouseenter', () => {
+                        item.style.borderColor = '#14F195';
+                    });
+                    item.addEventListener('mouseleave', () => {
+                        item.style.borderColor = '#333';
+                    });
+                    item.addEventListener('click', () => connectWallet(adapter));
+                }
+
+                list.appendChild(item);
+            });
+
+            walletModalOverlay.style.display = 'flex';
+        }
+
+        async function connectWallet(adapter) {
+            try {
+                await adapter.connect();
+                wallet = adapter.publicKey;
+                walletAdapter = adapter;
+
+                walletBtn.innerHTML = `
+                    <img src="${adapter.icon}" style="width: 16px; height: 16px; border-radius: 3px;">
+                    ${wallet.toString().slice(0, 4)}...${wallet.toString().slice(-4)}
+                `;
+                walletBtn.classList.add('connected');
+                simulateBtn.disabled = false;
+                executeBtn.disabled = false;
+                createScratchpadBtn.disabled = false;
+
+                outputContent.textContent = 'Connected: ' + wallet.toString();
+                outputContent.className = 'output-content success';
+
+                renderAccounts(); // Update to show wallet address
+
+                walletModalOverlay.style.display = 'none';
+
+                adapter.on('disconnect', () => {
+                    disconnectWallet();
+                });
+            } catch (err) {
+                outputContent.textContent = 'Failed to connect: ' + err.message;
+                outputContent.className = 'output-content error';
+                walletModalOverlay.style.display = 'none';
+            }
+        }
+
+        function disconnectWallet() {
+            if (walletAdapter) {
+                walletAdapter.disconnect();
+            }
+            wallet = null;
+            walletAdapter = null;
+            renderAccounts(); // Update to show "Connect wallet"
+            walletBtn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M21 18v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1h-9a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
+                </svg>
+                Select Wallet
+            `;
+            walletBtn.classList.remove('connected');
+            simulateBtn.disabled = true;
+            executeBtn.disabled = true;
+            createScratchpadBtn.disabled = true;
+        }
+
+        walletBtn.addEventListener('click', () => {
+            if (wallet) {
+                disconnectWallet();
+                outputContent.textContent = 'Wallet disconnected';
+                outputContent.className = 'output-content';
+            } else {
+                showWalletModal();
+            }
+        });
+
+        // Build instruction data
+        async function buildInstructionData() {
+            if (mode === 'script') {
+                const code = codeInput.value;
+                if (!code) {
+                    throw new Error('Please enter Python code');
+                }
+                const codeBytes = new TextEncoder().encode(code);
+                const data = new Uint8Array(1 + codeBytes.length);
+                data[0] = EXECUTE_SCRIPT;
+                data.set(codeBytes, 1);
+                return data;
+            } else if (mode === 'compile') {
+                // Use bytecode from the bytecode input box
+                let hex = bytecodeInput.value.trim();
+                if (!hex) {
+                    throw new Error('Please compile your code first or paste bytecode');
+                }
+                if (hex.startsWith('Compilation error:') || hex.startsWith('WASM compiler')) {
+                    throw new Error('Please fix compilation errors first');
+                }
+                if (hex.startsWith('0x')) hex = hex.slice(2);
+                hex = hex.replace(/\s/g, '');
+                if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) {
+                    throw new Error('Invalid hex bytecode');
+                }
+                const bytecode = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+                const data = new Uint8Array(1 + bytecode.length);
+                data[0] = EXECUTE_BYTECODE;
+                data.set(bytecode, 1);
+                return data;
+            }
+        }
+
+        // Parse results
+        function parseResults(logs, returnData) {
+            let output = '';
+            let cu = null;
+
+            for (const log of logs) {
+                if (log.includes('consumed')) {
+                    const match = log.match(/consumed (\d+) of/);
+                    if (match) cu = parseInt(match[1]);
+                }
+                if (log.startsWith('Program log: ') && !log.includes('Generated bytecode')) {
+                    output += log.replace('Program log: ', '') + '\n';
+                }
+            }
+
+            if (returnData) {
+                const returnBytes = Uint8Array.from(atob(returnData.data[0]), c => c.charCodeAt(0));
+                output = new TextDecoder().decode(returnBytes);
+            }
+
+            return { output: output.trim() || '(no output)', cu };
+        }
+
+        // Simulate
+        simulateBtn.addEventListener('click', async () => {
+            const programIdStr = programIdInput.value.trim();
+            if (!programIdStr) {
+                outputContent.textContent = 'Please enter a program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            let programId;
+            try {
+                programId = new PublicKey(programIdStr);
+            } catch {
+                outputContent.textContent = 'Invalid program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            outputContent.innerHTML = '<span class="spinner"></span>Simulating...';
+            outputContent.className = 'output-content pending';
+            outputMeta.textContent = '';
+            logsContent.textContent = 'Waiting for simulation...';
+
+            try {
+                const data = await buildInstructionData();
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const feePayer = new PublicKey(wallet.toString());
+
+                // Build account keys - wallet is always #0
+                const keys = [
+                    { pubkey: feePayer, isSigner: true, isWritable: false },
+                    ...accounts.filter(a => a.pubkey).map(acc => ({
+                        pubkey: new PublicKey(acc.pubkey),
+                        isSigner: acc.signer,
+                        isWritable: acc.writable
+                    }))
+                ];
+
+                const instruction = new TransactionInstruction({
+                    keys,
+                    programId,
+                    data: Uint8Array.from(data)
+                });
+
+                const { blockhash } = await connection.getLatestBlockhash('finalized');
+                const computeIx1 = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
+                const computeIx2 = ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 });
+
+                const transaction = new Transaction();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = feePayer;
+                transaction.add(computeIx1, computeIx2, instruction);
+
+                const simResult = await connection.simulateTransaction(transaction);
+                const allLogs = simResult.value.logs || [];
+                logsContent.textContent = allLogs.length > 0 ? allLogs.join('\n') : 'No logs';
+
+                if (simResult.value.err) {
+                    const errStr = JSON.stringify(simResult.value.err, null, 2);
+                    outputContent.textContent = 'Simulation failed: ' + errStr;
+                    outputContent.className = 'output-content error';
+                    return;
+                }
+
+                const { output, cu } = parseResults(allLogs, simResult.value.returnData);
+                outputContent.textContent = output;
+                outputContent.className = 'output-content success';
+                outputMeta.textContent = cu ? `${cu.toLocaleString()} CU (simulated)` : '';
+
+            } catch (err) {
+                console.error('Full error:', err);
+                outputContent.textContent = 'Error: ' + (err.message || String(err));
+                outputContent.className = 'output-content error';
+                if (err.logs) {
+                    logsContent.textContent = err.logs.join('\n');
+                } else {
+                    logsContent.textContent = 'No logs available';
+                }
+            }
+        });
+
+        // Execute
+        executeBtn.addEventListener('click', async () => {
+            const programIdStr = programIdInput.value.trim();
+            if (!programIdStr) {
+                outputContent.textContent = 'Please enter a program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            let programId;
+            try {
+                programId = new PublicKey(programIdStr);
+            } catch {
+                outputContent.textContent = 'Invalid program ID';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            outputContent.innerHTML = '<span class="spinner"></span>Executing...';
+            outputContent.className = 'output-content pending';
+            outputMeta.textContent = '';
+            logsContent.textContent = 'Waiting for execution...';
+
+            try {
+                const data = await buildInstructionData();
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const feePayer = new PublicKey(wallet.toString());
+
+                // Build account keys - wallet is always #0
+                const keys = [
+                    { pubkey: feePayer, isSigner: true, isWritable: false },
+                    ...accounts.filter(a => a.pubkey).map(acc => ({
+                        pubkey: new PublicKey(acc.pubkey),
+                        isSigner: acc.signer,
+                        isWritable: acc.writable
+                    }))
+                ];
+
+                const instruction = new TransactionInstruction({
+                    keys,
+                    programId,
+                    data: Uint8Array.from(data)
+                });
+
+                const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+                const computeIx1 = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
+                const computeIx2 = ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 });
+
+                const transaction = new Transaction();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = feePayer;
+                transaction.add(computeIx1, computeIx2, instruction);
+
+                outputContent.innerHTML = '<span class="spinner"></span>Waiting for wallet signature...';
+                const signedTx = await walletAdapter.signTransaction(transaction);
+
+                outputContent.innerHTML = '<span class="spinner"></span>Sending transaction...';
+                const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+                    skipPreflight: false,
+                    preflightCommitment: 'confirmed'
+                });
+
+                outputContent.innerHTML = '<span class="spinner"></span>Confirming...';
+                const confirmation = await connection.confirmTransaction({
+                    signature,
+                    blockhash,
+                    lastValidBlockHeight
+                }, 'confirmed');
+
+                if (confirmation.value.err) {
+                    outputContent.textContent = 'Transaction failed: ' + JSON.stringify(confirmation.value.err);
+                    outputContent.className = 'output-content error';
+                    return;
+                }
+
+                const txDetails = await connection.getTransaction(signature, {
+                    commitment: 'confirmed',
+                    maxSupportedTransactionVersion: 0
+                });
+
+                const allLogs = txDetails?.meta?.logMessages || [];
+                logsContent.textContent = allLogs.length > 0 ? allLogs.join('\n') : 'No logs';
+
+                const { output, cu } = parseResults(allLogs, txDetails?.meta?.returnData);
+                outputContent.textContent = output + '\n\nTx: ' + signature;
+                outputContent.className = 'output-content success';
+                outputMeta.textContent = cu ? `${cu.toLocaleString()} CU` : '';
+
+            } catch (err) {
+                console.error('Full error:', err);
+                let errorMsg = err.message || String(err);
+                if (err.cause) {
+                    errorMsg += '\n\nCause: ' + (err.cause.message || err.cause);
+                }
+                outputContent.textContent = 'Error: ' + errorMsg;
+                outputContent.className = 'output-content error';
+                if (err.logs) {
+                    logsContent.textContent = err.logs.join('\n');
+                } else {
+                    logsContent.textContent = 'No logs available';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

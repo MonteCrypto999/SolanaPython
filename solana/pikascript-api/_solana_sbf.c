@@ -38,6 +38,7 @@ static int64_t get_clock_epoch(void) {
 /* CPI context accessors (defined in pika_python.c) */
 extern SolAccountInfo* pika_get_cpi_accounts(void);
 extern uint64_t pika_get_cpi_num_accounts(void);
+extern const SolPubkey* pika_get_program_id(void);
 #endif
 
 /* Get current slot number */
@@ -57,6 +58,20 @@ int64_t _solana_epoch(PikaObj* self) {
     return (int64_t)get_clock_epoch();
 #else
     return 0;
+#endif
+}
+
+/* Get current program ID as bytes */
+Arg* _solana_program_id(PikaObj* self) {
+    (void)self;
+#ifdef PIKA_SOLANA_SBF
+    const SolPubkey* pid = pika_get_program_id();
+    if (pid == NULL) {
+        return arg_newNull();
+    }
+    return arg_newBytes((uint8_t*)pid, 32);
+#else
+    return arg_newNull();
 #endif
 }
 
@@ -123,6 +138,140 @@ int64_t _solana_cpi(PikaObj* self, int program_id, PikaObj* accounts, Arg* data)
 
     /* Invoke the program */
     uint64_t result = sol_invoke(&instruction, tx_accounts, (int)num_accounts);
+    return (int64_t)result;
+#else
+    return -1;
+#endif
+}
+
+/* Cross-program invocation with PDA signing
+ *
+ * seeds: list of signers, where each signer is a list of seed bytes
+ *   Example: [[b"vault", user_pubkey, bytes([bump])]]
+ *   - Outer list: one entry per PDA signer
+ *   - Inner list: seeds for that PDA (bytes/bytearray objects)
+ */
+int64_t _solana_invoke_signed(PikaObj* self, int program_id, PikaObj* accounts, Arg* data, PikaObj* seeds) {
+    (void)self;
+#ifdef PIKA_SOLANA_SBF
+    SolAccountInfo* tx_accounts = pika_get_cpi_accounts();
+    uint64_t num_accounts = pika_get_cpi_num_accounts();
+
+    if (tx_accounts == NULL || num_accounts == 0) {
+        return -1;
+    }
+
+    /* Get data bytes - skip size_t prefix */
+    uint8_t* data_ptr = arg_getBytes(data) + sizeof(size_t);
+    uint64_t data_len = arg_getBytesSize(data);
+
+    int numCpiAccounts = (int)pikaList_getSize(accounts);
+
+    /* Stack array for account metas (max 16) */
+    SolAccountMeta metas[16];
+
+    for (int i = 0; i < numCpiAccounts && i < 16; i++) {
+        Arg* elem = pikaList_getArg(accounts, i);
+        int idx = 0;
+        int is_writable = 0;
+        int is_signer = 0;
+
+        if (elem != NULL && arg_isObject(elem)) {
+            PikaObj* tuple = arg_getPtr(elem);
+            idx = (int)pikaList_getInt(tuple, 0);
+            is_writable = (int)pikaList_getInt(tuple, 1);
+            is_signer = (int)pikaList_getInt(tuple, 2);
+        } else {
+            idx = (int)pikaList_getInt(accounts, i);
+            is_writable = tx_accounts[idx].is_writable;
+            is_signer = tx_accounts[idx].is_signer;
+        }
+
+        if (idx < 0 || (uint64_t)idx >= num_accounts) {
+            return -2;
+        }
+        SolAccountInfo* acct = &tx_accounts[idx];
+        metas[i].pubkey = acct->key;
+        metas[i].is_writable = is_writable;
+        metas[i].is_signer = is_signer;
+    }
+
+    if (program_id < 0 || (uint64_t)program_id >= num_accounts) {
+        return -3;
+    }
+
+    SolInstruction instruction = {
+        .program_id = tx_accounts[program_id].key,
+        .accounts = metas,
+        .account_len = (uint64_t)numCpiAccounts,
+        .data = data_ptr,
+        .data_len = data_len
+    };
+
+    /* Build signer seeds from Python list
+     * seeds = [[seed1, seed2, ...], [seed1, seed2, ...], ...]
+     * Max 4 signers, max 8 seeds per signer
+     */
+    int num_signers = seeds ? (int)pikaList_getSize(seeds) : 0;
+    if (num_signers > 4) num_signers = 4;
+
+    SolSignerSeed seed_array[4][8];  /* Max 4 signers, 8 seeds each */
+    SolSignerSeeds signers[4];
+
+    for (int s = 0; s < num_signers; s++) {
+        Arg* signer_arg = pikaList_getArg(seeds, s);
+        if (signer_arg == NULL || !arg_isObject(signer_arg)) {
+            signers[s].addr = NULL;
+            signers[s].len = 0;
+            continue;
+        }
+
+        PikaObj* signer_seeds = arg_getPtr(signer_arg);
+        int num_seeds = (int)pikaList_getSize(signer_seeds);
+        if (num_seeds > 8) num_seeds = 8;
+
+        for (int i = 0; i < num_seeds; i++) {
+            Arg* seed_arg = pikaList_getArg(signer_seeds, i);
+            if (seed_arg == NULL) {
+                seed_array[s][i].addr = NULL;
+                seed_array[s][i].len = 0;
+                continue;
+            }
+
+            ArgType type = arg_getType(seed_arg);
+            if (type == ARG_TYPE_BYTES) {
+                /* Bytes object - skip size_t prefix */
+                seed_array[s][i].addr = arg_getBytes(seed_arg) + sizeof(size_t);
+                seed_array[s][i].len = arg_getBytesSize(seed_arg);
+            } else if (type == ARG_TYPE_STRING) {
+                /* String - use directly */
+                seed_array[s][i].addr = (const uint8_t*)arg_getStr(seed_arg);
+                seed_array[s][i].len = strlen(arg_getStr(seed_arg));
+            } else if (arg_isObject(seed_arg)) {
+                /* Could be a bytearray - try to get bytes */
+                PikaObj* obj = arg_getPtr(seed_arg);
+                uint8_t* raw = obj_getBytes(obj, "raw");
+                if (raw) {
+                    size_t len = obj_getBytesSize(obj, "raw");
+                    seed_array[s][i].addr = raw;
+                    seed_array[s][i].len = len;
+                } else {
+                    seed_array[s][i].addr = NULL;
+                    seed_array[s][i].len = 0;
+                }
+            } else {
+                seed_array[s][i].addr = NULL;
+                seed_array[s][i].len = 0;
+            }
+        }
+
+        signers[s].addr = seed_array[s];
+        signers[s].len = (uint64_t)num_seeds;
+    }
+
+    /* Invoke with signer seeds */
+    uint64_t result = sol_invoke_signed(&instruction, tx_accounts, (int)num_accounts,
+                                        signers, num_signers);
     return (int64_t)result;
 #else
     return -1;
@@ -295,6 +444,15 @@ static void _solana_epochMethod(PikaObj* self, Args* args) {
     method_returnInt(args, _solana_epoch(self));
 }
 
+static void _solana_program_idMethod(PikaObj* self, Args* args) {
+    Arg* result = _solana_program_id(self);
+    if (result) {
+        method_returnArg(args, result);
+    } else {
+        method_returnArg(args, arg_newNull());
+    }
+}
+
 static void _solana_cpiMethod(PikaObj* self, Args* args) {
     int program_id = args_getInt(args, "program_id");
 
@@ -311,6 +469,31 @@ static void _solana_cpiMethod(PikaObj* self, Args* args) {
     }
 
     method_returnInt(args, _solana_cpi(self, program_id, accounts, data));
+}
+
+static void _solana_invoke_signedMethod(PikaObj* self, Args* args) {
+    int program_id = args_getInt(args, "program_id");
+
+    Arg* aAccounts = args_getArg(args, "accounts");
+    PikaObj* accounts = NULL;
+    if (aAccounts != NULL && arg_isObject(aAccounts)) {
+        accounts = arg_getPtr(aAccounts);
+    }
+
+    Arg* data = args_getArg(args, "data");
+
+    Arg* aSeeds = args_getArg(args, "seeds");
+    PikaObj* seeds = NULL;
+    if (aSeeds != NULL && arg_isObject(aSeeds)) {
+        seeds = arg_getPtr(aSeeds);
+    }
+
+    if (data == NULL || accounts == NULL) {
+        method_returnInt(args, -1);
+        return;
+    }
+
+    method_returnInt(args, _solana_invoke_signed(self, program_id, accounts, data, seeds));
 }
 
 static void _solana_sha256Method(PikaObj* self, Args* args) {
@@ -382,7 +565,9 @@ PikaObj* New__solana(Args* args) {
     /* Register methods at runtime */
     class_defineMethod(self, "slot", "", (Method)_solana_slotMethod);
     class_defineMethod(self, "epoch", "", (Method)_solana_epochMethod);
+    class_defineMethod(self, "program_id", "", (Method)_solana_program_idMethod);
     class_defineMethod(self, "cpi", "program_id,accounts,data", (Method)_solana_cpiMethod);
+    class_defineMethod(self, "invoke_signed", "program_id,accounts,data,seeds", (Method)_solana_invoke_signedMethod);
 
     /* Hash functions */
     class_defineMethod(self, "sha256", "data", (Method)_solana_sha256Method);

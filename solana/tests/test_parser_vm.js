@@ -244,7 +244,7 @@ async function executeScript(connection, programId, payer, pythonCode) {
 
     // Extract logs (filter out system logs)
     const logs = (simResult.value.logs || []).filter(log =>
-        log.startsWith('Program log:') && !log.includes('[EXECUTE_SCRIPT]') && !log.includes('[PIKA]')
+        log.startsWith('Program log:')
     ).map(log => log.replace('Program log: ', ''));
 
     // Send transaction

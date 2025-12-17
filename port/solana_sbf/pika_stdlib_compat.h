@@ -46,15 +46,16 @@ static inline void __vm_Dict___init__(PikaObj* self) {
 }
 
 static inline void __vm_Dict_set(PikaObj* self, Arg* arg, char* key) {
-    PikaDict* dict = obj_getPtr(self, "dict");
-    PikaDict* keys = obj_getPtr(self, "_keys");
+    Args* dict = obj_getPtr(self, "dict");
+    Args* keys = obj_getPtr(self, "_keys");
 
     Arg* arg_key = arg_setStr(NULL, key, key);
     Arg* arg_new = arg_copy(arg);
     arg_setName(arg_new, key);
 
-    pikaDict_set(dict, key, arg_new);
-    pikaDict_set(keys, key, arg_key);
+    // Use args_setArg directly since dict/keys are Args*, not PikaObj*
+    args_setArg(dict, arg_new);
+    args_setArg(keys, arg_key);
 }
 
 // API compatibility functions

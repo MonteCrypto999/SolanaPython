@@ -3926,6 +3926,25 @@ pika_bool arg_isTuple(Arg* arg) {
 }
 
 int64_t obj_getSize(PikaObj* arg_obj) {
+#ifdef PIKA_SOLANA_SBF
+    /* BPF direct path: handle list/dict directly to avoid method lookup issues */
+    Args* list = obj_getPtr(arg_obj, "list");
+    if (list != NULL) {
+        /* It's a list - get the "top" counter */
+        return args_getInt(list, "top");
+    }
+    Args* keys = obj_getPtr(arg_obj, "_keys");
+    if (keys != NULL) {
+        /* It's a dict - count items in keys linked list */
+        int count = 0;
+        Arg* node = (Arg*)keys->firstNode;
+        while (node != NULL) {
+            count++;
+            node = arg_getNext(node);
+        }
+        return count;
+    }
+#endif
     Arg* aRes = obj_runMethod0(arg_obj, "__len__");
     if (NULL == aRes) {
         return -1;
@@ -4869,6 +4888,17 @@ int _pika_snprintf_impl3(char* buff, size_t size, const char* fmt, intptr_t a1, 
     while (*src && (dst - buff) < (int)size - 1) {
         if (*src == '%' && *(src + 1) && arg_idx < 2) {
             src++;
+            // Parse width and flags
+            int zero_pad = 0;
+            int width = 0;
+            if (*src == '0') {
+                zero_pad = 1;
+                src++;
+            }
+            while (*src >= '0' && *src <= '9') {
+                width = width * 10 + (*src - '0');
+                src++;
+            }
             // Skip length modifiers (l, ll, h, etc.)
             while (*src == 'l' || *src == 'h') src++;
             if (*src == 'd' || *src == 'i') {
@@ -4882,6 +4912,8 @@ int _pika_snprintf_impl3(char* buff, size_t size, const char* fmt, intptr_t a1, 
                     val /= 10;
                 } while (val > 0);
                 if (is_neg) temp[len++] = '-';
+                // Pad with zeros if needed
+                while (zero_pad && len < width) temp[len++] = '0';
                 while (len > 0 && (dst - buff) < (int)size - 1) *dst++ = temp[--len];
             } else if (*src == 's') {
                 const char* str = (const char*)args[arg_idx++];
@@ -4892,6 +4924,23 @@ int _pika_snprintf_impl3(char* buff, size_t size, const char* fmt, intptr_t a1, 
                 *dst++ = (char)args[arg_idx++];
             } else if (*src == 'x') {
                 unsigned int val = (unsigned int)args[arg_idx++];
+                char temp[32];
+                int len = 0;
+                do {
+                    int digit = val % 16;
+                    temp[len++] = digit < 10 ? '0' + digit : 'a' + digit - 10;
+                    val /= 16;
+                } while (val > 0);
+                // Pad with zeros if needed
+                while (zero_pad && len < width) temp[len++] = '0';
+                while (len > 0 && (dst - buff) < (int)size - 1) *dst++ = temp[--len];
+            } else if (*src == 'p') {
+                // Pointer format - same as %x but with 0x prefix
+                unsigned long val = (unsigned long)args[arg_idx++];
+                if ((dst - buff) < (int)size - 3) {
+                    *dst++ = '0';
+                    *dst++ = 'x';
+                }
                 char temp[32];
                 int len = 0;
                 do {

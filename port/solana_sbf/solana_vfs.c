@@ -245,6 +245,16 @@ static int mode_wants_write(const char* mode) {
     return 0;
 }
 
+/* Check if mode requests read access */
+static int mode_wants_read(const char* mode) {
+    if (!mode) return 1;  /* Default to read */
+    for (const char* p = mode; *p; p++) {
+        if (*p == 'r' || *p == '+') return 1;
+    }
+    /* "w" or "a" without '+' is write-only */
+    return 0;
+}
+
 /*
  * =============================================================================
  * VFS Public API
@@ -305,7 +315,7 @@ int sol_vfs_open(const char* pubkey_b58, const char* mode) {
     f->data = account->data;
     f->size = account->data_len;
     f->position = 0;
-    f->is_writable = account->is_writable;
+    f->is_writable = wants_write;  /* Respect mode, not just account permission */
     f->is_open = 1;
 
     /* Copy pubkey */
@@ -346,7 +356,7 @@ int sol_vfs_open_by_index(uint64_t account_index, const char* mode) {
     f->data = account->data;
     f->size = account->data_len;
     f->position = 0;
-    f->is_writable = account->is_writable;
+    f->is_writable = wants_write;  /* Respect mode, not just account permission */
     f->is_open = 1;
 
     /* Copy pubkey */

@@ -293,6 +293,21 @@ void _sbf_builtins_len(PikaObj* self, Args* args) {
                 method_returnInt(args, (int)arg_getBytesSize(rawArg));
                 return;
             }
+
+            // Check if it's a dict (has "_keys" pointer)
+            Args* keys = obj_getPtr(obj, "_keys");
+            if (keys != NULL) {
+                // Count items in keys linked list
+                int count = 0;
+                Arg* node = (Arg*)keys->firstNode;
+                while (node != NULL) {
+                    count++;
+                    node = arg_getNext(node);
+                }
+                method_returnInt(args, count);
+                return;
+            }
+
             // Try pikaList_getSize which works for lists and tuples
             size_t size = pikaList_getSize(obj);
             method_returnInt(args, (int)size);
@@ -1211,6 +1226,162 @@ void _sbf_builtins_cpi(PikaObj* self, Args* args) {
 #endif
 
 // ============================================================================
+// str builtin - convert to string
+// ============================================================================
+void _sbf_builtins_str(PikaObj* self, Args* args) {
+    (void)self;
+    Arg* aVal = args_getArg(args, "val");
+
+    // No argument -> empty string
+    if (aVal == NULL) {
+        method_returnStr(args, "");
+        return;
+    }
+
+    ArgType type = arg_getType(aVal);
+
+    // None -> "None"
+    if (type == ARG_TYPE_NONE) {
+        method_returnStr(args, "None");
+        return;
+    }
+
+    // String -> return as is
+    if (type == ARG_TYPE_STRING) {
+        method_returnStr(args, arg_getStr(aVal));
+        return;
+    }
+
+    // Int -> convert to string
+    if (type == ARG_TYPE_INT) {
+        int64_t val = arg_getInt(aVal);
+        char buf[24];
+        int neg = 0;
+        int pos = 0;
+
+        if (val < 0) {
+            neg = 1;
+            val = -val;
+        } else if (val == 0) {
+            method_returnStr(args, "0");
+            return;
+        }
+
+        // Build digits in reverse
+        char tmp[24];
+        int tmpPos = 0;
+        while (val > 0) {
+            tmp[tmpPos++] = '0' + (val % 10);
+            val /= 10;
+        }
+
+        // Reverse into buf
+        if (neg) buf[pos++] = '-';
+        while (tmpPos > 0) {
+            buf[pos++] = tmp[--tmpPos];
+        }
+        buf[pos] = '\0';
+
+        method_returnStr(args, buf);
+        return;
+    }
+
+    // Float -> convert to string
+    if (type == ARG_TYPE_FLOAT) {
+        pika_float val = arg_getFloat(aVal);
+        char buf[32];
+
+        // Handle negative
+        int pos = 0;
+        if (val < 0) {
+            buf[pos++] = '-';
+            val = -val;
+        }
+
+        // Get integer part
+        int64_t intPart = (int64_t)val;
+        pika_float fracPart = val - (pika_float)intPart;
+
+        // Convert integer part
+        char tmp[24];
+        int tmpPos = 0;
+        if (intPart == 0) {
+            tmp[tmpPos++] = '0';
+        } else {
+            while (intPart > 0) {
+                tmp[tmpPos++] = '0' + (intPart % 10);
+                intPart /= 10;
+            }
+        }
+        while (tmpPos > 0) {
+            buf[pos++] = tmp[--tmpPos];
+        }
+
+        // Add decimal point and fractional part (6 digits)
+        buf[pos++] = '.';
+        for (int i = 0; i < 6; i++) {
+            fracPart *= 10;
+            int digit = (int)fracPart;
+            buf[pos++] = '0' + digit;
+            fracPart -= digit;
+        }
+        buf[pos] = '\0';
+
+        method_returnStr(args, buf);
+        return;
+    }
+
+    // Bool -> "True" or "False"
+    if (type == ARG_TYPE_BOOL) {
+        method_returnStr(args, arg_getBool(aVal) ? "True" : "False");
+        return;
+    }
+
+    // Bytes -> hex representation
+    if (type == ARG_TYPE_BYTES) {
+        uint8_t* bytes = arg_getBytes(aVal) + sizeof(size_t);
+        size_t size = arg_getBytesSize(aVal);
+
+        // Format: b'\xNN\xNN...'
+        int bufSize = 3 + size * 4 + 2;
+        char* buf = (char*)pikaMalloc(bufSize);
+        if (buf == NULL) {
+            method_returnStr(args, "b''");
+            return;
+        }
+
+        int pos = 0;
+        buf[pos++] = 'b';
+        buf[pos++] = '\'';
+
+        for (size_t i = 0; i < size; i++) {
+            buf[pos++] = '\\';
+            buf[pos++] = 'x';
+            uint8_t hi = (bytes[i] >> 4) & 0x0F;
+            uint8_t lo = bytes[i] & 0x0F;
+            buf[pos++] = hi < 10 ? '0' + hi : 'a' + hi - 10;
+            buf[pos++] = lo < 10 ? '0' + lo : 'a' + lo - 10;
+        }
+
+        buf[pos++] = '\'';
+        buf[pos] = '\0';
+
+        method_returnStr(args, buf);
+        pikaFree(buf, bufSize);
+        return;
+    }
+
+    // Object -> return type indicator
+    if (argType_isObject(type)) {
+        method_returnStr(args, "<object>");
+        return;
+    }
+
+    // Unknown type - return empty string
+    method_returnStr(args, "");
+}
+
+// ============================================================================
 // exec builtin - execute Python source code
 // ============================================================================
 extern void builtins_exec(PikaObj* self, char* code);
@@ -1248,6 +1419,7 @@ PikaObj* New_builtins(Args* args) {
     class_defineMethod(self, "bool", "val", (Method)_sbf_builtins_bool);
     class_defineMethod(self, "len", "arg", (Method)_sbf_builtins_len);
     class_defineMethod(self, "int", "arg,*base", (Method)_sbf_builtins_int);
+    class_defineMethod(self, "str", "val", (Method)_sbf_builtins_str);
     class_defineMethod(self, "max", "*val", (Method)_sbf_builtins_max);
     class_defineMethod(self, "min", "*val", (Method)_sbf_builtins_min);
     class_defineMethod(self, "open", "path,mode", (Method)_sbf_builtins_open);

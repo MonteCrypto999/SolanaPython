@@ -731,6 +731,92 @@ Arg* arg_toStrArg(Arg* arg) {
         result = arg_newStr(buff);
         goto __exit;
     }
+    if (type == ARG_TYPE_OBJECT) {
+        PikaObj* obj = arg_getPtr(arg);
+        if (obj != NULL) {
+            /* Forward declarations for constructor checks */
+            PikaObj* New_PikaStdData_List(Args* args);
+            PikaObj* New_PikaStdData_Tuple(Args* args);
+            PikaObj* New_PikaStdData_Dict(Args* args);
+
+            /* Check if it's a dict by checking for the dict pointer */
+            Args* dict_inner = (Args*)obj_getPtr(obj, "dict");
+            if (dict_inner != NULL) {
+                /* Format as dict: {key1: value1, key2: value2, ...} */
+                Args* keys = (Args*)obj_getPtr(obj, "_keys");
+                Arg* str_arg = arg_newStr("{");
+                int size = pikaDict_getSize(obj);
+                for (int i = size - 1; i >= 0; i--) {
+                    if (i < size - 1) {
+                        str_arg = arg_strAppend(str_arg, ", ");
+                    }
+                    Arg* item_key = keys ? args_getArgByIndex(keys, i) : NULL;
+                    Arg* item_val = args_getArgByIndex(dict_inner, i);
+                    /* Add key */
+                    if (item_key != NULL) {
+                        char* key_str = arg_getStr(item_key);
+                        if (key_str != NULL) {
+                            str_arg = arg_strAppend(str_arg, "'");
+                            str_arg = arg_strAppend(str_arg, key_str);
+                            str_arg = arg_strAppend(str_arg, "'");
+                        }
+                    }
+                    str_arg = arg_strAppend(str_arg, ": ");
+                    /* Add value */
+                    if (item_val != NULL) {
+                        Arg* val_str = arg_toStrArg(item_val);
+                        str_arg = arg_strAppend(str_arg, arg_getStr(val_str));
+                        arg_deinit(val_str);
+                    }
+                }
+                str_arg = arg_strAppend(str_arg, "}");
+                result = str_arg;
+                goto __exit;
+            }
+
+            /* Check if it's a list or tuple by checking for the list pointer */
+            PikaList* list = obj_getPtr(obj, "list");
+            if (list != NULL) {
+                /* Check if it's a tuple by constructor */
+                pika_bool is_tuple = (obj->constructor == New_PikaStdData_Tuple);
+                /* Format as list [elem1, elem2, ...] or tuple (elem1, elem2, ...) */
+                Arg* str_arg = arg_newStr(is_tuple ? "(" : "[");
+                int size = pikaList_getSize(obj);
+                for (int i = 0; i < size; i++) {
+                    if (i > 0) {
+                        str_arg = arg_strAppend(str_arg, ", ");
+                    }
+                    Arg* item = pikaList_getArg(obj, i);
+                    if (item != NULL) {
+                        Arg* item_str = arg_toStrArg(item);
+                        str_arg = arg_strAppend(str_arg, arg_getStr(item_str));
+                        arg_deinit(item_str);
+                    }
+                }
+                /* For single-element tuple, add trailing comma */
+                if (is_tuple && size == 1) {
+                    str_arg = arg_strAppend(str_arg, ",");
+                }
+                str_arg = arg_strAppend(str_arg, is_tuple ? ")" : "]");
+                result = str_arg;
+                goto __exit;
+            }
+            char* str = obj_toStr(obj);
+            if (str != NULL) {
+                result = arg_newStr(str);
+                goto __exit;
+            }
+        }
+#ifdef PIKA_SOLANA_SBF
+        _pika_snprintf_impl2(buff, PIKA_SPRINTF_BUFF_SIZE, "<object at %p>",
+                             (intptr_t)arg_getPtr(arg));
+#else
+        pika_snprintf(buff, PIKA_SPRINTF_BUFF_SIZE, "<object at %p>",
+                      arg_getPtr(arg));
+#endif
+        result = arg_newStr(buff);
+        goto __exit;
+    }
 #ifdef PIKA_SOLANA_SBF
     _pika_snprintf_impl1(buff, PIKA_SPRINTF_BUFF_SIZE, "<class 'function'>");
 #else

@@ -124,6 +124,9 @@ const TEST_CASES = [
     { name: 'len string', code: `len('hello')`, expected: '5' },
     { name: 'len list', code: `len([1, 2, 3])`, expected: '3' },
     { name: 'int from string', code: `int('42')`, expected: '42' },
+    { name: 'str from int', code: `str(42)`, expected: '42' },
+    { name: 'str from negative', code: `str(0-123)`, expected: '-123' },
+    { name: 'str concat', code: `'val: ' + str(255)`, expected: 'val: 255' },
     { name: 'max two args', code: `max(3, 7)`, expected: '7' },
     { name: 'max three args', code: `max(1, 5, 3)`, expected: '5' },
     { name: 'min two args', code: `min(3, 7)`, expected: '3' },
@@ -182,16 +185,51 @@ const TEST_CASES = [
     { name: 'base64.b64decode length', code: `import base64\nlen(base64.b64decode('SGVsbG8='))`, expected: '5' },
     { name: 'base64.b64decode empty', code: `import base64\nlen(base64.b64decode(''))`, expected: '0' },
     { name: 'base64.b64decode single char', code: `import base64\nlen(base64.b64decode('QQ=='))`, expected: '1' },
+    { name: 'base64.b64encode', code: `import base64\nbase64.b64encode(b'Hello')`, expected: 'SGVsbG8=' },
+    { name: 'base64.b64encode empty', code: `import base64\nlen(base64.b64encode(b''))`, expected: '0' },
+    { name: 'base64.b64encode single', code: `import base64\nbase64.b64encode(b'A')`, expected: 'QQ==' },
+    { name: 'base64 roundtrip', code: `import base64\nbase64.b64encode(base64.b64decode('SGVsbG8='))`, expected: 'SGVsbG8=' },
 
-    // === JSON Module ===
+    // === JSON Module - dumps ===
     { name: 'json.dumps int', code: `import json\njson.dumps(42)`, expected: '42' },
+    { name: 'json.dumps negative int', code: `import json\njson.dumps(0-123)`, expected: '-123' },
+    { name: 'json.dumps float', code: `import json\njson.dumps(3.14)`, expected: '3.14' },
     { name: 'json.dumps string', code: `import json\njson.dumps('hello')`, expected: '"hello"' },
+    { name: 'json.dumps string escape', code: `import json\njson.dumps('a"b')`, expected: '"a\\"b"' },
+    { name: 'json.dumps empty list', code: `import json\njson.dumps([])`, expected: '[]' },
     { name: 'json.dumps list', code: `import json\njson.dumps([1,2,3])`, expected: '[1,2,3]' },
+    { name: 'json.dumps nested list', code: `import json\njson.dumps([[1,2],[3,4]])`, expected: '[[1,2],[3,4]]' },
+    { name: 'json.dumps empty dict', code: `import json\nd = {}\njson.dumps(d)`, expected: '{}' },
+    { name: 'json.dumps dict', code: `import json\nd = {'a': 1}\njson.dumps(d)`, expected: '{"a":1}' },
+    { name: 'json.dumps dict string val', code: `import json\nd = {'name': 'test'}\njson.dumps(d)`, expected: '{"name":"test"}' },
+    { name: 'json.dumps dict float val', code: `import json\nd = {'pi': 3.14}\njson.dumps(d)`, expected: '{"pi":3.14}' },
+    { name: 'json.dumps dict list val', code: `import json\nd = {'arr': [1,2]}\njson.dumps(d)`, expected: '{"arr":[1,2]}' },
+
+    // === JSON Module - loads ===
     { name: 'json.loads int', code: `import json\njson.loads('42')`, expected: '42' },
+    { name: 'json.loads negative int', code: `import json\njson.loads('-123')`, expected: '-123' },
+    { name: 'json.loads float', code: `import json\njson.loads('3.14')`, expected: '3.14' },
     { name: 'json.loads string', code: `import json\njson.loads('"hello"')`, expected: 'hello' },
-    { name: 'json.loads list length', code: `import json\nlen(json.loads('[1,2,3]'))`, expected: '3' },
     { name: 'json.loads bool true', code: `import json\njson.loads('true')`, expected: '1' },
     { name: 'json.loads bool false', code: `import json\njson.loads('false')`, expected: '0' },
+    { name: 'json.loads null', code: `import json\njson.loads('null')`, expected: 'None' },
+    { name: 'json.loads empty list', code: `import json\nlen(json.loads('[]'))`, expected: '0' },
+    { name: 'json.loads list length', code: `import json\nlen(json.loads('[1,2,3]'))`, expected: '3' },
+    { name: 'json.loads list element', code: `import json\njson.loads('[10,20,30]')[1]`, expected: '20' },
+    { name: 'json.loads empty dict', code: `import json\nlen(json.loads('{}'))`, expected: '0' },
+    { name: 'json.loads dict', code: `import json\nd = json.loads('{"a":1}')\nd['a']`, expected: '1' },
+    { name: 'json.loads dict len', code: `import json\nlen(json.loads('{"a":1,"b":2}'))`, expected: '2' },
+    { name: 'json.loads dict string val', code: `import json\njson.loads('{"name":"test"}')['name']`, expected: 'test' },
+    { name: 'json.loads nested list', code: `import json\njson.loads('[[1,2],[3,4]]')[0][1]`, expected: '2' },
+    { name: 'json.loads nested dict', code: `import json\njson.loads('{"a":{"b":5}}')['a']['b']`, expected: '5' },
+
+    // === JSON Module - roundtrip ===
+    { name: 'json roundtrip list', code: `import json\njson.loads(json.dumps([1,2,3]))[2]`, expected: '3' },
+    { name: 'json roundtrip dict', code: `import json\nd = {'x': 42}\njson.loads(json.dumps(d))['x']`, expected: '42' },
+
+    // === Dict Operations ===
+    { name: 'dict create', code: `d = {'x': 10}\nd['x']`, expected: '10' },
+    { name: 'dict len', code: `d = {'a': 1, 'b': 2}\nlen(d)`, expected: '2' },
 
     // === Struct Module ===
     { name: 'struct.calcsize B', code: `import struct\nstruct.calcsize('B')`, expected: '1' },
@@ -206,6 +244,12 @@ const TEST_CASES = [
     { name: 'solana.sha256 returns 32 bytes', code: `import solana\nlen(solana.sha256(bytearray([1,2,3])))`, expected: '32' },
     { name: 'solana.keccak256 returns 32 bytes', code: `import solana\nlen(solana.keccak256(bytearray([1,2,3])))`, expected: '32' },
     // Note: blake3 syscall not available on mainnet yet
+
+    // === Hash Printing Format (test %02x fix) ===
+    // sha256 and keccak256 return bytes objects that should be formatted as b'\xNN\xNN...'
+    // Before the fix, they would show b'\x%02x\x%02x...' which is wrong
+    { name: 'sha256 output is bytes format', code: `import solana\nh = solana.sha256(bytearray([1,2,3]))\nh`, expected: "b'\\x20\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x03\\x90\\x58\\xc6\\xf2\\xc0\\xcb\\x49\\x2c\\x53\\x3b\\x0a\\x4d\\x14\\xef\\x77\\xcc\\x0f\\x78\\xab\\xcc\\xce\\xd5\\x28'" },
+    { name: 'keccak256 output is bytes format', code: `import solana\nh = solana.keccak256(bytearray([1,2,3]))\nh`, expected: "b'\\x20\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\xf1\\x88\\x5e\\xda\\x54\\xb7\\xa0\\x53\\x31\\x8c\\xd4\\x1e\\x20\\x93\\x22\\x0d\\xab\\x15\\xd6\\x53\\x81\\xb1\\x15\\x7a'" },
 
     // === Base58 Module ===
     { name: 'base58.b58decode pubkey', code: `import base58\nlen(base58.b58decode('11111111111111111111111111111111'))`, expected: '32' },
