@@ -1,6 +1,8 @@
-# PikaPython for Solana
+# SolanaPython
 
 A Python interpreter that runs on Solana as an on-chain program. Execute Python code directly on the blockchain.
+
+**Try it now:** [https://solanapython.github.io/SolanaPython/](https://solanapython.github.io/SolanaPython/)
 
 ## Quick Start
 

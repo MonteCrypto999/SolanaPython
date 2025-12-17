@@ -97,3 +97,4 @@ solana/build/
 solana/examples/bytecode/
 solana/tools/pika_compile
 solana/tools/*.dSYM
+.DS_Store
