@@ -575,7 +575,7 @@
     <div class="container">
         <header>
             <h1>SolanaPython</h1>
-            <p class="subtitle">Run Python on Solana</p>
+            <p class="subtitle">on-chain python on solana</p>
             <button class="btn-secondary btn-wallet header-wallet" id="walletBtn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M21 18v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1h-9a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
@@ -649,13 +649,7 @@
                     <input type="text" id="pdaProgramInput" placeholder="Program ID (leave blank for PikaPython)" style="flex: 1;">
                     <button class="create-scratchpad-btn" id="derivePdaBtn" style="white-space: nowrap;">Derive PDA</button>
                 </div>
-                <div id="pdaResult" class="scratchpad-item" style="display: none;">
-                    <span class="pubkey hoverable-pubkey" id="pdaAddress" data-pubkey="" title="Hover to see account data"></span>
-                    <span id="pdaSeeds" class="seeds"></span>
-                    <span class="bump" id="pdaBump"></span>
-                    <button class="copy-btn" id="copyPdaBtn">Copy</button>
-                    <button class="use-btn" id="usePdaBtn">Use</button>
-                </div>
+                <div id="pdaList" class="scratchpad-list"></div>
                 <p class="info">Derive a PDA from seeds. Use <code>solana.find_program_address([seeds], program_id)</code> on-chain.</p>
             </div>
         </div>
@@ -935,6 +929,26 @@ print(len(data))">Struct</button>
             console.log('Standard wallet detection:', e.message);
         }
 
+        // Auto-connect to previously used wallet
+        async function tryAutoConnect() {
+            const savedWallet = localStorage.getItem('pikapython_wallet');
+            if (!savedWallet) return;
+
+            // Find the adapter by name
+            const adapter = wallets.find(w => w.name === savedWallet && w.readyState === 'Installed');
+            if (adapter) {
+                try {
+                    await connectWallet(adapter, true); // silent = true
+                } catch (e) {
+                    console.log('Auto-connect failed:', e.message);
+                    localStorage.removeItem('pikapython_wallet');
+                }
+            }
+        }
+
+        // Call auto-connect after a short delay to let wallets initialize
+        setTimeout(tryAutoConnect, 500);
+
         // DOM elements
         const programIdInput = document.getElementById('programId');
         const rpcUrlInput = document.getElementById('rpcUrl');
@@ -959,11 +973,6 @@ print(len(data))">Struct</button>
         const pdaSeedsInput = document.getElementById('pdaSeedsInput');
         const pdaProgramInput = document.getElementById('pdaProgramInput');
         const derivePdaBtn = document.getElementById('derivePdaBtn');
-        const pdaResult = document.getElementById('pdaResult');
-        const pdaAddress = document.getElementById('pdaAddress');
-        const pdaBump = document.getElementById('pdaBump');
-        const usePdaBtn = document.getElementById('usePdaBtn');
-        const copyPdaBtn = document.getElementById('copyPdaBtn');
 
         // PDA state
         let currentPda = null;
@@ -1044,6 +1053,63 @@ print(len(data))">Struct</button>
         // Scratchpad management - load from getProgramAccounts
         let scratchpads = [];
         let scratchpadContents = {}; // Cache for account contents
+
+        // Derived PDAs list
+        let derivedPdas = [];
+        const pdaList = document.getElementById('pdaList');
+
+        function addDerivedPda(pubkey, seeds, bump) {
+            // Check if already exists
+            if (derivedPdas.some(p => p.pubkey === pubkey)) return;
+            derivedPdas.push({ pubkey, seeds, bump });
+            renderPdaList();
+        }
+
+        function removeDerivedPda(pubkey) {
+            derivedPdas = derivedPdas.filter(p => p.pubkey !== pubkey);
+            renderPdaList();
+        }
+
+        function clearDerivedPdas() {
+            derivedPdas = [];
+            renderPdaList();
+        }
+
+        function renderPdaList() {
+            if (derivedPdas.length === 0) {
+                pdaList.innerHTML = '';
+                return;
+            }
+            pdaList.innerHTML = derivedPdas.map(pda => `
+                <div class="scratchpad-item">
+                    <span class="pubkey hoverable-pubkey" data-pubkey="${pda.pubkey}" title="Hover to see account data">${pda.pubkey.slice(0, 8)}...${pda.pubkey.slice(-4)}</span>
+                    <span class="seeds">[${pda.seeds}]</span>
+                    <span class="bump">bump: ${pda.bump}</span>
+                    <button class="copy-btn" data-pubkey="${pda.pubkey}">Copy</button>
+                    <button class="use-btn" data-pubkey="${pda.pubkey}">Use</button>
+                    <button class="remove-btn" data-pubkey="${pda.pubkey}" title="Remove">x</button>
+                </div>
+            `).join('');
+
+            // Add event listeners
+            pdaList.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(btn.dataset.pubkey);
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => btn.textContent = 'Copy', 1000);
+                });
+            });
+            pdaList.querySelectorAll('.use-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    addAccount(btn.dataset.pubkey, true, false);
+                });
+            });
+            pdaList.querySelectorAll('.remove-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    removeDerivedPda(btn.dataset.pubkey);
+                });
+            });
+        }
 
         async function loadScratchpads() {
             const programIdStr = programIdInput.value.trim();
@@ -1281,48 +1347,15 @@ print(len(data))">Struct</button>
                 const pdaStr = pda.toString();
                 currentPda = { address: pdaStr, bump, seeds: seedStrings, programId: programIdStr };
 
-                pdaAddress.textContent = `${pdaStr.slice(0, 8)}...${pdaStr.slice(-8)}`;
-                pdaAddress.dataset.pubkey = pdaStr;
-                pdaBump.textContent = `bump: ${bump}`;
-                document.getElementById('pdaSeeds').textContent = `(${seedStrings.join(', ')})`;
-                pdaResult.style.display = 'flex';
+                // Add to derived PDAs list
+                addDerivedPda(pdaStr, seedStrings.join(', '), bump);
 
                 outputContent.textContent = `PDA derived:\n${pdaStr}\nBump: ${bump}`;
                 outputContent.className = 'output-content success';
             } catch (err) {
                 outputContent.textContent = 'Failed to derive PDA: ' + err.message;
                 outputContent.className = 'output-content error';
-                pdaResult.style.display = 'none';
                 currentPda = null;
-            }
-        });
-
-        // Add PDA to accounts list
-        usePdaBtn.addEventListener('click', () => {
-            if (!currentPda) return;
-
-            // Add to accounts list as writable
-            accounts.push({ pubkey: currentPda.address, writable: true, signer: false });
-            renderAccounts();
-
-            outputContent.textContent = `Added PDA to accounts as #${accounts.length} (writable).\nAccess via open("/sol/${accounts.length}", "r"|"w")`;
-            outputContent.className = 'output-content success';
-        });
-
-        // Copy PDA address to clipboard
-        copyPdaBtn.addEventListener('click', async () => {
-            if (!currentPda) return;
-
-            try {
-                await navigator.clipboard.writeText(currentPda.address);
-                const originalText = copyPdaBtn.textContent;
-                copyPdaBtn.textContent = 'Copied!';
-                setTimeout(() => {
-                    copyPdaBtn.textContent = originalText;
-                }, 1500);
-            } catch (err) {
-                outputContent.textContent = 'Failed to copy: ' + err.message;
-                outputContent.className = 'output-content error';
             }
         });
 
@@ -1389,6 +1422,7 @@ print(len(data))">Struct</button>
         // Reload scratchpads when program ID changes
         programIdInput.addEventListener('change', () => {
             loadScratchpads();
+            clearDerivedPdas(); // Clear PDAs when program changes
         });
 
         // Mode selection
@@ -1412,16 +1446,12 @@ print(len(data))">Struct</button>
             });
         });
 
-        // Example buttons
+        // Example buttons (only set code if data-code exists, don't change mode)
         document.querySelectorAll('.example-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                codeInput.value = btn.dataset.code;
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-                mode = 'script';
-                codeLabel.textContent = 'Python Code';
-                modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-                bytecodePreview.style.display = 'none';
+                if (btn.dataset.code) {
+                    codeInput.value = btn.dataset.code;
+                }
             });
         });
 
@@ -1498,14 +1528,6 @@ print(data)`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
-
             // Set up accounts - wallet #0, scratchpad #1
             if (scratchpads.length > 0) {
                 setAccounts([
@@ -1539,14 +1561,6 @@ print(result)`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
-
             // Set up accounts - wallet #0, scratchpad #1
             if (scratchpads.length > 0) {
                 setAccounts([
@@ -1578,13 +1592,6 @@ print(sol_1.x)`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
 
             // Set up accounts - wallet #0, scratchpad #1
             if (scratchpads.length > 0) {
@@ -1618,13 +1625,6 @@ print(msg)`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
 
             // Set up accounts - wallet #0, scratchpad #1
             if (scratchpads.length > 0) {
@@ -1639,9 +1639,25 @@ print(msg)`;
             outputContent.className = 'output-content';
         });
 
-        // Create PDA example - create a PDA account via CPI
-        document.getElementById('createPdaExample').addEventListener('click', () => {
+        // Create PDA example - create a PDA account via CPI using wallet as seed
+        document.getElementById('createPdaExample').addEventListener('click', async () => {
+            if (!wallet) {
+                outputContent.textContent = 'Please connect your wallet first to create a user-specific PDA.';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            const walletStr = wallet.toString();
+            // Convert wallet pubkey to Python bytes literal
+            const walletBytes = wallet.toBuffer();
+            let walletBytesLiteral = 'b"';
+            for (let i = 0; i < walletBytes.length; i++) {
+                walletBytesLiteral += '\\x' + walletBytes[i].toString(16).padStart(2, '0');
+            }
+            walletBytesLiteral += '"';
+
             const code = `# Create PDA Account via CPI to System Program
+# Uses your wallet address as seed for a unique PDA
 # Accounts needed:
 #   #0: Wallet (signer, pays rent)
 #   #1: System Program (11111111111111111111111111111111)
@@ -1649,16 +1665,17 @@ print(msg)`;
 import solana
 import struct
 
-# Derive the PDA
-seeds = [b"vault"]
+# Wallet pubkey (injected from wallet connector)
+wallet_pubkey = ${walletBytesLiteral}
+
+# Derive PDA using wallet as seed (unique per user)
 pid = solana.program_id()
-pda, bump = solana.find_program_address(seeds, pid)
+pda, bump = solana.find_program_address([wallet_pubkey], pid)
 
 print("PDA bump: " + str(bump))
 
 # Build CreateAccount instruction (52 bytes)
 # Format: u32(0) + u64(lamports) + u64(space) + 32-byte owner
-# Rent exemption for 64 bytes ≈ 1,336,320 lamports
 data = struct.pack("<I", [0])           # instruction = 0 (CreateAccount)
 data = data + struct.pack("<Q", [1500000])  # lamports (rent exempt)
 data = data + struct.pack("<Q", [64])   # space
@@ -1666,42 +1683,51 @@ data = data + pid                       # owner = this program
 
 # Account indices for CPI: (idx, writable, signer)
 accounts = [(0, 1, 1), (2, 1, 1)]
-signer_seeds = [[b"vault", struct.pack("B", [bump])]]
+signer_seeds = [[wallet_pubkey, struct.pack("B", [bump])]]
 
 result = solana.invoke_signed(1, accounts, data, signer_seeds)
 print("CPI result: " + str(result))`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
 
-            // Derive the PDA locally and set up accounts
+            // Derive the PDA locally using wallet pubkey as seed
             const programIdStr = programIdInput.value.trim();
             try {
                 const programId = new PublicKey(programIdStr);
                 const [pda, bump] = PublicKey.findProgramAddressSync(
-                    [new TextEncoder().encode("vault")],
+                    [wallet.toBuffer()],
                     programId
                 );
+
+                // Check if PDA already exists
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const pdaInfo = await connection.getAccountInfo(pda);
+
+                // Add to derived PDAs list
+                const seedDisplay = walletStr.slice(0, 4) + '...' + walletStr.slice(-4);
+                addDerivedPda(pda.toString(), seedDisplay, bump);
 
                 setAccounts([
                     { pubkey: '11111111111111111111111111111111', writable: false, signer: false },
                     { pubkey: pda.toString(), writable: true, signer: false }
                 ]);
-                outputContent.textContent = `Create PDA example ready.\n\nPDA: ${pda.toString()}\nBump: ${bump}\n\nAccounts:\n  #0: Wallet (signer)\n  #1: System Program\n  #2: PDA (writable)\n\nClick Execute to create the PDA account.`;
+
+                if (pdaInfo) {
+                    outputContent.textContent = `PDA already exists!\n\nPDA: ${pda.toString()}\nBump: ${bump}\nOwner: ${pdaInfo.owner.toString()}\nBalance: ${pdaInfo.lamports / 1e9} SOL\n\nThis account was already created.`;
+                    outputContent.className = 'output-content';
+                } else {
+                    outputContent.textContent = `Create PDA example ready.\n\nPDA: ${pda.toString()}\nBump: ${bump}\nSeed: your wallet address\n\nAccounts:\n  #0: Wallet (signer)\n  #1: System Program\n  #2: PDA (writable)\n\nClick Execute to create your unique PDA account.`;
+                    outputContent.className = 'output-content success';
+                }
             } catch (err) {
                 setAccounts([
                     { pubkey: '11111111111111111111111111111111', writable: false, signer: false }
                 ]);
-                outputContent.textContent = `Create PDA example ready. Derive PDA above to add it to accounts.`;
+                outputContent.textContent = `Error: ${err.message}`;
+                outputContent.className = 'output-content error';
             }
-            outputContent.className = 'output-content';
         });
 
         // PDA example - derive and display PDA on-chain
@@ -1723,13 +1749,6 @@ print("Bump: " + str(bump))`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
 
             setAccounts([]);
             outputContent.textContent = 'PDA example ready. Click Simulate to derive a PDA on-chain.\n\nTip: Use the PDA section above to derive PDAs locally before execution.';
@@ -1761,13 +1780,6 @@ print("Data: " + data)`;
 
             codeInput.value = code;
 
-            // Switch to script mode
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            document.querySelector('.mode-btn[data-mode="script"]').classList.add('active');
-            mode = 'script';
-            codeLabel.textContent = 'Python Code';
-            modeInfo.textContent = 'Script mode: Python compiled on-chain (~600K-1.4M CU)';
-            bytecodePreview.style.display = 'none';
 
             // Derive the PDA locally and set up accounts
             const programIdStr = programIdInput.value.trim();
@@ -1994,11 +2006,14 @@ print("Data: " + data)`;
             walletModalOverlay.style.display = 'flex';
         }
 
-        async function connectWallet(adapter) {
+        async function connectWallet(adapter, silent = false) {
             try {
                 await adapter.connect();
                 wallet = adapter.publicKey;
                 walletAdapter = adapter;
+
+                // Store wallet name for auto-connect
+                localStorage.setItem('pikapython_wallet', adapter.name);
 
                 walletBtn.innerHTML = `
                     <img src="${adapter.icon}" style="width: 16px; height: 16px; border-radius: 3px;">
@@ -2009,8 +2024,10 @@ print("Data: " + data)`;
                 executeBtn.disabled = false;
                 createScratchpadBtn.disabled = false;
 
-                outputContent.textContent = 'Connected: ' + wallet.toString();
-                outputContent.className = 'output-content success';
+                if (!silent) {
+                    outputContent.textContent = 'Connected: ' + wallet.toString();
+                    outputContent.className = 'output-content success';
+                }
 
                 renderAccounts(); // Update to show wallet address
 
@@ -2020,8 +2037,10 @@ print("Data: " + data)`;
                     disconnectWallet();
                 });
             } catch (err) {
-                outputContent.textContent = 'Failed to connect: ' + err.message;
-                outputContent.className = 'output-content error';
+                if (!silent) {
+                    outputContent.textContent = 'Failed to connect: ' + err.message;
+                    outputContent.className = 'output-content error';
+                }
                 walletModalOverlay.style.display = 'none';
             }
         }
@@ -2032,6 +2051,7 @@ print("Data: " + data)`;
             }
             wallet = null;
             walletAdapter = null;
+            localStorage.removeItem('pikapython_wallet');
             renderAccounts(); // Update to show "Connect wallet"
             walletBtn.innerHTML = `
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
