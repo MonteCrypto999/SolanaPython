@@ -732,7 +732,9 @@ print(json.dumps(d))">JSON</button>
 print(math.sqrt(2.0))
 print(math.pi)">Math Lib</button>
                 <button class="example-btn" data-code="import time
-print(time.time())">Timestamp</button>
+t = time.time()
+print('Epoch: ' + str(t))
+print('Date: ' + time.ctime(t))">Timestamp</button>
                 <button class="example-btn" data-code="import struct
 data = struct.pack('<I', [42])
 print(len(data))">Struct</button>
@@ -1101,7 +1103,11 @@ print(len(data))">Struct</button>
             });
             pdaList.querySelectorAll('.use-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    addAccount(btn.dataset.pubkey, true, false);
+                    const pubkey = btn.dataset.pubkey;
+                    accounts.push({ pubkey, writable: true, signer: false });
+                    renderAccounts();
+                    outputContent.textContent = `Added PDA as writable account #${accounts.length - 1}. Access via open("/sol/${accounts.length - 1}", "r"|"w")`;
+                    outputContent.className = 'output-content success';
                 });
             });
             pdaList.querySelectorAll('.remove-btn').forEach(btn => {
