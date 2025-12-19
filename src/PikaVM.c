@@ -958,9 +958,9 @@ Arg* _vm_get(PikaVMFrame* vm, PikaObj* self, Arg* aKey, Arg* aObj) {
     }
     if (ARG_TYPE_BYTES == eType) {
         uint8_t* sBytesPyload = arg_getBytes(aObj);
-        uint8_t sByteBuff[] = " ";
-        sByteBuff[0] = sBytesPyload[iIndex];
-        return arg_newInt(sByteBuff[0]);
+        /* arg_getBytes returns pointer to [size_t size][data] - skip the size_t prefix */
+        uint8_t* actualBytes = sBytesPyload + sizeof(size_t);
+        return arg_newInt(actualBytes[iIndex]);
     }
     if (argType_isObject(eType)) {
         PikaObj* oArg = NULL;

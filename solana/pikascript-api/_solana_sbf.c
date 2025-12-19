@@ -75,6 +75,22 @@ Arg* _solana_program_id(PikaObj* self) {
 #endif
 }
 
+/* Get account pubkey by index */
+Arg* _solana_account_key(PikaObj* self, int idx) {
+    (void)self;
+#ifdef PIKA_SOLANA_SBF
+    SolAccountInfo* accounts = pika_get_cpi_accounts();
+    uint64_t num_accounts = pika_get_cpi_num_accounts();
+    if (accounts == NULL || idx < 0 || (uint64_t)idx >= num_accounts) {
+        return arg_newNull();
+    }
+    return arg_newBytes((uint8_t*)accounts[idx].key, 32);
+#else
+    (void)idx;
+    return arg_newNull();
+#endif
+}
+
 /* Cross-program invocation */
 int64_t _solana_cpi(PikaObj* self, int program_id, PikaObj* accounts, Arg* data) {
     (void)self;
@@ -453,6 +469,16 @@ static void _solana_program_idMethod(PikaObj* self, Args* args) {
     }
 }
 
+static void _solana_account_keyMethod(PikaObj* self, Args* args) {
+    int idx = args_getInt(args, "idx");
+    Arg* result = _solana_account_key(self, idx);
+    if (result) {
+        method_returnArg(args, result);
+    } else {
+        method_returnArg(args, arg_newNull());
+    }
+}
+
 static void _solana_cpiMethod(PikaObj* self, Args* args) {
     int program_id = args_getInt(args, "program_id");
 
@@ -566,6 +592,7 @@ PikaObj* New__solana(Args* args) {
     class_defineMethod(self, "slot", "", (Method)_solana_slotMethod);
     class_defineMethod(self, "epoch", "", (Method)_solana_epochMethod);
     class_defineMethod(self, "program_id", "", (Method)_solana_program_idMethod);
+    class_defineMethod(self, "account_key", "idx", (Method)_solana_account_keyMethod);
     class_defineMethod(self, "cpi", "program_id,accounts,data", (Method)_solana_cpiMethod);
     class_defineMethod(self, "invoke_signed", "program_id,accounts,data,seeds", (Method)_solana_invoke_signedMethod);
 
