@@ -679,11 +679,12 @@
             <div class="example-list" style="margin-bottom: 16px;">
                 <button class="package-btn" data-import="solana">solana<span class="tooltip">slot() - current slot
 epoch() - current epoch
+program_id() - this program's ID
+account_key(idx) - get account pubkey
 sha256(data) - SHA256 hash
 keccak256(data) - Keccak256 hash
-create_program_address(seeds, program_id)
-find_program_address(seeds, program_id)
-cpi(program_idx, accounts, data)</span></button>
+find_program_address(seeds, pid)
+invoke_signed(prog, accs, data, seeds)</span></button>
                 <button class="package-btn" data-import="math">math<span class="tooltip">sin(x), cos(x), tan(x)
 sqrt(x) - square root
 pow(x, y) - power
@@ -1820,11 +1821,30 @@ print("Data: " + data)`;
             // Part 1: Create mint account + Initialize mint
             const code = `import solana as s
 import struct as t
-w=s.account_key(0)
-k=s.account_key(2)
-_,b=s.find_program_address([b"m",w],s.program_id())
-s.invoke_signed(1,[(0,1,1),(3,1,1)],t.pack("<IQQ",[0,1461600,82])+k,[[b"m",w,t.pack("B",[b])]])
-s.invoke_signed(2,[(3,1,0),(4,0,0)],t.pack("BB",[0,9])+w+t.pack("B",[1])+w,[])`;
+
+# Get account pubkeys from transaction
+# Accounts: 0=wallet, 1=System, 2=Token, 3=Mint PDA, 4=Rent
+w = s.account_key(0)  # wallet pubkey (32 bytes)
+k = s.account_key(2)  # Token Program pubkey
+
+# Derive mint PDA: seeds = ["m", wallet_pubkey]
+# Returns (pda_address, bump_seed)
+_, b = s.find_program_address([b"m", w], s.program_id())
+
+# Create mint account via System Program (account 1)
+# invoke_signed(program_idx, accounts, data, signer_seeds)
+# accounts: [(idx, writable, signer), ...]
+# CreateAccount: payer(0), new_account(3)
+# Data: instruction(0) + lamports(1461600) + space(82) + owner(Token Program)
+s.invoke_signed(1, [(0,1,1), (3,1,1)],
+    t.pack("<IQQ", [0, 1461600, 82]) + k,
+    [[b"m", w, t.pack("B", [b])]])  # PDA seeds
+
+# Initialize mint via Token Program (account 2)
+# InitializeMint: mint(3), rent(4)
+# Data: instruction(0) + decimals(9) + authority(wallet) + has_freeze(1) + freeze_auth(wallet)
+s.invoke_signed(2, [(3,1,0), (4,0,0)],
+    t.pack("BB", [0, 9]) + w + t.pack("B", [1]) + w, [])`;
 
             codeInput.value = code;
 
@@ -1892,13 +1912,28 @@ After this, use "Mint Token (Part 2)" to create ATA and mint tokens.`;
             }
 
             // Part 2: Create ATA + Mint tokens
-            // Accounts: 0=wallet, 1=Token, 2=ATA Program, 3=Mint, 4=ATA, 5=System, 6=Rent
             const code = `import solana as s
 import struct as t
-w=s.account_key(0)
-_,b=s.find_program_address([b"m",w],s.program_id())
-s.invoke_signed(2,[(0,1,1),(4,1,0),(0,0,0),(3,0,0),(5,0,0),(1,0,0)],b"",[])
-s.invoke_signed(1,[(3,1,0),(4,1,0),(0,0,1)],t.pack("<BQ",[7,1000000000]),[[b"m",w,t.pack("B",[b])]])`;
+
+# Accounts: 0=wallet, 1=Token, 2=ATA Program, 3=Mint, 4=ATA, 5=System, 6=Rent
+w = s.account_key(0)  # wallet pubkey
+
+# Derive mint PDA to get bump for signing
+_, b = s.find_program_address([b"m", w], s.program_id())
+
+# Create Associated Token Account via ATA Program (account 2)
+# CreateATA accounts: payer(0), ata(4), owner(0), mint(3), system(5), token(1)
+# Data: empty (ATA program has no instruction data)
+s.invoke_signed(2, [(0,1,1), (4,1,0), (0,0,0), (3,0,0), (5,0,0), (1,0,0)], b"", [])
+
+# Mint tokens via Token Program (account 1)
+# MintTo accounts: mint(3), destination(4), authority(0)
+# Authority is wallet (set as mint authority in Part 1)
+# Data: instruction(7=MintTo) + amount(1000000000 = 1 token with 9 decimals)
+# Seeds: sign for mint PDA since it's the authority
+s.invoke_signed(1, [(3,1,0), (4,1,0), (0,0,1)],
+    t.pack("<BQ", [7, 1000000000]),
+    [[b"m", w, t.pack("B", [b])]])`;
 
             codeInput.value = code;
 
