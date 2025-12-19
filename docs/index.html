@@ -746,6 +746,8 @@ print(len(data))">Struct</button>
                 <button class="example-btn" id="pdaExample">PDA</button>
                 <button class="example-btn" id="createPdaExample">Create PDA</button>
                 <button class="example-btn" id="readPdaExample">Read PDA</button>
+                <button class="example-btn" id="mintTokenExample">Create Mint</button>
+                <button class="example-btn" id="mintTokenPart2">Mint Tokens</button>
             </div>
         </div>
     </div>
@@ -1807,6 +1809,150 @@ print("Data: " + data)`;
             outputContent.className = 'output-content';
         });
 
+        // Mint Token example - create mint, ATA, and mint tokens
+        document.getElementById('mintTokenExample').addEventListener('click', async () => {
+            if (!wallet) {
+                outputContent.textContent = 'Please connect your wallet first.';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            // Part 1: Create mint account + Initialize mint
+            const code = `import solana as s
+import struct as t
+w=s.account_key(0)
+k=s.account_key(2)
+_,b=s.find_program_address([b"m",w],s.program_id())
+s.invoke_signed(1,[(0,1,1),(3,1,1)],t.pack("<IQQ",[0,1461600,82])+k,[[b"m",w,t.pack("B",[b])]])
+s.invoke_signed(2,[(3,1,0),(4,0,0)],t.pack("BB",[0,9])+w+t.pack("B",[1])+w,[])`;
+
+            codeInput.value = code;
+
+            // Derive mint PDA and ATA
+            const programIdStr = programIdInput.value.trim();
+            try {
+                const programId = new PublicKey(programIdStr);
+                const [mintPda, mintBump] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("m"), wallet.toBuffer()],
+                    programId
+                );
+
+                // Derive ATA
+                const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+                const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+                const [ata] = PublicKey.findProgramAddressSync(
+                    [wallet.toBuffer(), TOKEN_PROGRAM.toBuffer(), mintPda.toBuffer()],
+                    ATA_PROGRAM
+                );
+
+                // Part 1 accounts: System, Token, MintPDA, Rent
+                setAccounts([
+                    { pubkey: '11111111111111111111111111111111', writable: false, signer: false },
+                    { pubkey: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', writable: false, signer: false },
+                    { pubkey: mintPda.toString(), writable: true, signer: false },
+                    { pubkey: 'SysvarRent111111111111111111111111111111111', writable: false, signer: false }
+                ]);
+
+                // Check if mint already exists
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const mintInfo = await connection.getAccountInfo(mintPda);
+
+                if (mintInfo) {
+                    outputContent.textContent = `Mint exists! Use "Mint Token (Part 2)" to create ATA and mint.
+
+Mint PDA: ${mintPda.toString()}
+Your ATA: ${ata.toString()}`;
+                    outputContent.className = 'output-content';
+                } else {
+                    outputContent.textContent = `Create Mint (Part 1) ready!
+
+Mint PDA: ${mintPda.toString()}
+Mint bump: ${mintBump}
+
+This will:
+1. Create mint account (PDA)
+2. Initialize mint (9 decimals, you as authority)
+
+After this, use "Mint Token (Part 2)" to create ATA and mint tokens.`;
+                    outputContent.className = 'output-content success';
+                }
+            } catch (err) {
+                outputContent.textContent = `Error: ${err.message}`;
+                outputContent.className = 'output-content error';
+            }
+        });
+
+        // Mint Token Part 2: Create ATA + Mint tokens
+        document.getElementById('mintTokenPart2').addEventListener('click', async () => {
+            if (!wallet) {
+                outputContent.textContent = 'Please connect your wallet first.';
+                outputContent.className = 'output-content error';
+                return;
+            }
+
+            // Part 2: Create ATA + Mint tokens
+            // Accounts: 0=wallet, 1=Token, 2=ATA Program, 3=Mint, 4=ATA, 5=System, 6=Rent
+            const code = `import solana as s
+import struct as t
+w=s.account_key(0)
+_,b=s.find_program_address([b"m",w],s.program_id())
+s.invoke_signed(2,[(0,1,1),(4,1,0),(0,0,0),(3,0,0),(5,0,0),(1,0,0)],b"",[])
+s.invoke_signed(1,[(3,1,0),(4,1,0),(0,0,1)],t.pack("<BQ",[7,1000000000]),[[b"m",w,t.pack("B",[b])]])`;
+
+            codeInput.value = code;
+
+            const programIdStr = programIdInput.value.trim();
+            try {
+                const programId = new PublicKey(programIdStr);
+                const [mintPda, mintBump] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("m"), wallet.toBuffer()],
+                    programId
+                );
+
+                const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+                const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+                const [ata] = PublicKey.findProgramAddressSync(
+                    [wallet.toBuffer(), TOKEN_PROGRAM.toBuffer(), mintPda.toBuffer()],
+                    ATA_PROGRAM
+                );
+
+                // Part 2 accounts: Token, ATA Program, MintPDA, ATA, System, Rent
+                setAccounts([
+                    { pubkey: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', writable: false, signer: false },
+                    { pubkey: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', writable: false, signer: false },
+                    { pubkey: mintPda.toString(), writable: true, signer: false },
+                    { pubkey: ata.toString(), writable: true, signer: false },
+                    { pubkey: '11111111111111111111111111111111', writable: false, signer: false },
+                    { pubkey: 'SysvarRent111111111111111111111111111111111', writable: false, signer: false }
+                ]);
+
+                const rpcUrl = getRpcUrl();
+                const connection = new Connection(rpcUrl, 'confirmed');
+                const mintInfo = await connection.getAccountInfo(mintPda);
+
+                if (!mintInfo) {
+                    outputContent.textContent = `Mint not found! Run "Create Mint" first.
+
+Mint PDA: ${mintPda.toString()}`;
+                    outputContent.className = 'output-content error';
+                } else {
+                    outputContent.textContent = `Mint Tokens (Part 2) ready!
+
+Mint PDA: ${mintPda.toString()}
+Your ATA: ${ata.toString()}
+
+This will:
+1. Create your Associated Token Account
+2. Mint 1 token (1,000,000,000 base units)`;
+                    outputContent.className = 'output-content success';
+                }
+            } catch (err) {
+                outputContent.textContent = `Error: ${err.message}`;
+                outputContent.className = 'output-content error';
+            }
+        });
+
         // Shared account tooltip system
         const accountTooltip = document.getElementById('accountTooltip');
         const tooltipHeader = document.getElementById('tooltipHeader');
@@ -2167,9 +2313,9 @@ print("Data: " + data)`;
                 const connection = new Connection(rpcUrl, 'confirmed');
                 const feePayer = new PublicKey(wallet.toString());
 
-                // Build account keys - wallet is always #0
+                // Build account keys - wallet is always #0 (writable for CPI payments)
                 const keys = [
-                    { pubkey: feePayer, isSigner: true, isWritable: false },
+                    { pubkey: feePayer, isSigner: true, isWritable: true },
                     ...accounts.filter(a => a.pubkey).map(acc => ({
                         pubkey: new PublicKey(acc.pubkey),
                         isSigner: acc.signer,
@@ -2249,9 +2395,9 @@ print("Data: " + data)`;
                 const connection = new Connection(rpcUrl, 'confirmed');
                 const feePayer = new PublicKey(wallet.toString());
 
-                // Build account keys - wallet is always #0
+                // Build account keys - wallet is always #0 (writable for CPI payments)
                 const keys = [
-                    { pubkey: feePayer, isSigner: true, isWritable: false },
+                    { pubkey: feePayer, isSigner: true, isWritable: true },
                     ...accounts.filter(a => a.pubkey).map(acc => ({
                         pubkey: new PublicKey(acc.pubkey),
                         isSigner: acc.signer,
